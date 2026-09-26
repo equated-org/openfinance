@@ -7,12 +7,13 @@ export { default as AccountsOverview } from "./AccountsOverview.svelte";
 export {
   groupAccounts,
   currencyTotals,
+  balanceBuckets,
   formatBalance,
   formatSubtotal,
   formatAccountType,
   isLiabilityGroup,
 } from "./utils";
-export type { AccountGroup, CurrencyTotal } from "./utils";
+export type { AccountGroup, CurrencyTotal, BalanceBucket } from "./utils";
 export {
   accountsState,
   loadAccountsState,
