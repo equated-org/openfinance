@@ -145,6 +145,108 @@ export const MultipleCurrencies: Story = {
   },
 };
 
+/**
+ * The case that motivated splitting the header: most of the money sits in
+ * retirement accounts. Folded into a single total, the RRSPs made this read as
+ * six figures on hand when only the bank accounts are spendable.
+ */
+export const WithInvestments: Story = {
+  args: {
+    accounts: [
+      account({
+        name: "CAD account",
+        mask: "9794",
+        currentBalance: "18420.50",
+        isoCurrencyCode: "CAD",
+        institutionName: "Wise (US)",
+        institutionUrl: "https://wise.com",
+      }),
+      account({
+        name: "Adv Plus Banking",
+        mask: "8896",
+        currentBalance: "2150.00",
+        institutionName: "Bank of America",
+        institutionUrl: "https://www.bankofamerica.com",
+      }),
+      account({
+        name: "Cobalt Card",
+        type: "credit",
+        subtype: "credit card",
+        mask: "1004",
+        currentBalance: "640.12",
+        isoCurrencyCode: "CAD",
+        institutionName: "American Express (Canada)",
+        institutionUrl: "https://www.americanexpress.com",
+      }),
+      account({
+        name: "Individual RRSP",
+        type: "investment",
+        subtype: "rrsp",
+        mask: "6262",
+        currentBalance: "128300.00",
+        isoCurrencyCode: "CAD",
+        institutionName: "Questrade",
+        institutionUrl: "https://www.questrade.com",
+      }),
+      account({
+        name: "RRSP",
+        type: "investment",
+        subtype: "rrsp",
+        mask: "9500",
+        currentBalance: "38900.00",
+        institutionName: "Interactive Brokers - CA",
+        institutionUrl: "https://www.interactivebrokers.com",
+      }),
+      account({
+        name: "TFSA",
+        type: "investment",
+        subtype: "tfsa",
+        mask: "6693",
+        currentBalance: "4210.33",
+        isoCurrencyCode: "CAD",
+        institutionName: "Interactive Brokers - CA",
+        institutionUrl: "https://www.interactivebrokers.com",
+      }),
+    ],
+    ...handlers,
+  },
+};
+
+/** A mortgage gets its own figure rather than sinking the cash total. */
+export const WithLoans: Story = {
+  args: {
+    accounts: [
+      account({ name: "Checking", mask: "1111", currentBalance: "8250.00" }),
+      account({
+        name: "Visa Credit",
+        type: "credit",
+        subtype: "credit card",
+        mask: "0310",
+        currentBalance: "1240.55",
+      }),
+      account({
+        name: "401(k)",
+        type: "investment",
+        subtype: "401k",
+        mask: "2231",
+        currentBalance: "96420.18",
+        institutionName: "Fidelity",
+        institutionUrl: "https://www.fidelity.com",
+      }),
+      account({
+        name: "Mortgage",
+        type: "loan",
+        subtype: "mortgage",
+        mask: "5510",
+        currentBalance: "312480.00",
+        institutionName: "Wells Fargo",
+        institutionUrl: "https://www.wellsfargo.com",
+      }),
+    ],
+    ...handlers,
+  },
+};
+
 /** A connection that dropped out — the card surfaces a Reconnect action. */
 export const NeedsReconnect: Story = {
   args: {
@@ -167,7 +269,7 @@ export const NeedsReconnect: Story = {
   },
 };
 
-/** Liabilities outweigh assets, so the total goes negative. */
+/** The card balance outweighs the bank balance, so cash goes negative. */
 export const NegativeTotal: Story = {
   args: {
     accounts: [

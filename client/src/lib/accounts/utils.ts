@@ -86,6 +86,44 @@ export function currencyTotals(accounts: ConnectedAccount[]): CurrencyTotal[] {
   return nonZero.length > 0 ? nonZero : sorted.slice(0, 1);
 }
 
+export interface BalanceBucket {
+  key: string;
+  label: string;
+  totals: CurrencyTotal[];
+}
+
+const BALANCE_BUCKETS = [
+  { key: "cash", label: "Cash" },
+  { key: "investments", label: "Investments" },
+  { key: "loans", label: "Loans" },
+] as const;
+
+function balanceBucketKey(type: string): string {
+  if (type === "investment") return "investments";
+  if (type === "loan") return "loans";
+  return "cash";
+}
+
+/**
+ * Splits the headline balance into cash, investments, and loans, each totalled
+ * per currency (see currencyTotals). One combined figure overstates what's on
+ * hand: an RRSP or 401(k) balance can dwarf the chequing account, and a
+ * mortgage would sink it. Card balances still net against cash, since that's
+ * money already spent.
+ *
+ * Buckets with no accounts are left out.
+ */
+export function balanceBuckets(accounts: ConnectedAccount[]): BalanceBucket[] {
+  const buckets: BalanceBucket[] = [];
+  for (const { key, label } of BALANCE_BUCKETS) {
+    const members = accounts.filter((a) => balanceBucketKey(a.type) === key);
+    if (members.length > 0) {
+      buckets.push({ key, label, totals: currencyTotals(members) });
+    }
+  }
+  return buckets;
+}
+
 export function formatBalance(
   balance: string | null,
   currency: string | null,
