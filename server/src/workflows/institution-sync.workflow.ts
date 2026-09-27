@@ -2,6 +2,7 @@ import { DBOS, SchedulerMode } from "@dbos-inc/dbos-sdk";
 import { PlaidInstitutionSyncer } from "$lib/sync/plaid-institution-syncer.js";
 import { MXInstitutionSyncer } from "$lib/sync/mx-institution-syncer.js";
 import { isMxConfigured } from "$lib/sync/mx.client.js";
+import { scheduledJobsDisabled } from "$lib/utils.js";
 
 interface InstitutionSyncResult {
   success: boolean;
@@ -25,6 +26,19 @@ export class InstitutionSyncWorkflow {
     schedTime?: Date,
     _atTime?: Date,
   ): Promise<InstitutionSyncResult> {
+    if (schedTime && scheduledJobsDisabled()) {
+      DBOS.logger.info(
+        "Skipping scheduled institution sync: DISABLE_SCHEDULED_JOBS is set",
+      );
+      return {
+        success: true,
+        message: "Skipped: scheduled jobs are disabled",
+        providersRefreshed: [],
+        healthStatusUpdated: false,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     DBOS.logger.info(
       `Starting institution sync workflow (scheduled: ${schedTime?.toISOString() ?? "manual"})`,
     );

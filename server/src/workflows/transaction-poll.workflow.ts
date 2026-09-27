@@ -13,6 +13,7 @@ import { PlaidTransactionSyncWorkflow } from "./plaid-transaction-sync.workflow"
 import { MxTransactionSyncWorkflow } from "./mx-transaction-sync.workflow";
 import { QuilttTransactionSyncWorkflow } from "./quiltt-transaction-sync.workflow";
 import { shouldStopPolling } from "../lib/sync/disconnect-codes";
+import { scheduledJobsDisabled } from "../lib/utils";
 
 interface PollResult {
   connectionsProcessed: number;
@@ -42,6 +43,13 @@ export class TransactionPollWorkflow {
     schedTime?: Date,
     _atTime?: Date,
   ): Promise<PollResult> {
+    if (schedTime && scheduledJobsDisabled()) {
+      DBOS.logger.info(
+        "Skipping scheduled transaction poll: DISABLE_SCHEDULED_JOBS is set",
+      );
+      return { connectionsProcessed: 0, errors: [] };
+    }
+
     DBOS.logger.debug(
       `Starting transaction poll workflow (scheduled: ${schedTime?.toISOString() ?? "manual"})`,
     );
