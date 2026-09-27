@@ -176,4 +176,14 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
     // Stale → still retried; only the user-facing prompt differs
     expect(ids).toContain(staleConnId);
   });
+
+  it("skips scheduled polls while DISABLE_SCHEDULED_JOBS is set", async () => {
+    process.env.DISABLE_SCHEDULED_JOBS = "true";
+    try {
+      const result = await TransactionPollWorkflow.pollTransactions(new Date());
+      expect(result).toEqual({ connectionsProcessed: 0, errors: [] });
+    } finally {
+      delete process.env.DISABLE_SCHEDULED_JOBS;
+    }
+  });
 });
