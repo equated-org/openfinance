@@ -65,7 +65,8 @@ The API runs on `:3000`. The SvelteKit client runs on `:5173`.
 ## Docs
 
 - [Development](docs/development.md)
-- [Deployment](docs/deployment.md)
+- [Deploying to Fly.io](docs/deploy-fly.md)
+- [Deploying with Docker Compose](docs/deploy-docker-compose.md)
 - [MCP server](docs/mcp-server.md)
 - [Skill/API examples](skill/SKILL.md)
 
