@@ -1,0 +1,111 @@
+# Production API server: Postgres, the API and Caddy (HTTPS). Values come from
+# .env.prod, which isn't in git:
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml ...
+# See docs/deploy-docker-compose.md.
+name: openfinance
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  PORT: "3000"
+  APP_ENV: ${APP_ENV:-prod}
+  DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+  APP_URL: ${APP_URL:?APP_URL is required}
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL is required}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID is required}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET is required}
+  PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:?PLAID_CLIENT_ID is required}
+  PLAID_PROD_SECRET: ${PLAID_PROD_SECRET:?PLAID_PROD_SECRET is required}
+  PLAID_SANDBOX_SECRET: ${PLAID_SANDBOX_SECRET:-}
+  QUILTT_API_SECRET: ${QUILTT_API_SECRET:?QUILTT_API_SECRET is required}
+  QUILTT_CONNECTOR_ID: ${QUILTT_CONNECTOR_ID:?QUILTT_CONNECTOR_ID is required}
+  # Optional: MX stays off unless all three are set.
+  MX_API_KEY: ${MX_API_KEY:-}
+  MX_API_URL: ${MX_API_URL:-}
+  MX_CLIENT_ID: ${MX_CLIENT_ID:-}
+  # The Resend client is constructed at import, so the server won't boot without it.
+  RESEND_API_KEY: ${RESEND_API_KEY:?RESEND_API_KEY is required}
+  # The server reads this with ??, so an empty value would replace its default.
+  EMAIL_FROM: "${EMAIL_FROM:-OpenFinance <hello@openfinance.sh>}"
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?STRIPE_SECRET_KEY is required}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET is required}
+  API_PROXY_URL: ${API_PROXY_URL:-}
+  MCP_BUNDLE_URL: ${MCP_BUNDLE_URL:-}
+  DISABLE_SCHEDULED_JOBS: ${DISABLE_SCHEDULED_JOBS:-}
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Loopback only, for SSH tunnels. Docker publishes ports around ufw, so a
+    # public binding here would expose Postgres to the internet.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  app:
+    build: .
+    image: openfinance-api
+    restart: unless-stopped
+    init: true
+    environment: *app-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+
+  migrate:
+    image: openfinance-api
+    pull_policy: never
+    profiles:
+      - tools
+    environment: *app-environment
+    working_dir: /app
+    command: ["node_modules/.bin/drizzle-kit", "migrate", "--config", "drizzle.config.ts"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      API_HOSTS: ${API_HOSTS:-api.openfinance.sh}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

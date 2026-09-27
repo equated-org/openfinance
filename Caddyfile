@@ -1,0 +1,25 @@
+# HTTPS for the API. API_HOSTS lists every hostname served, separated by
+# spaces; Caddy gets a certificate for each once its DNS points at this host.
+{$API_HOSTS} {
+	# Let's Encrypt, or a self-signed certificate when it can't validate the
+	# hostname (DNS points elsewhere, or a proxy blocks port 80). Cloudflare's
+	# "Full" mode accepts either; "Full (strict)" needs Let's Encrypt.
+	tls {
+		issuer acme
+		issuer internal
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+	encode zstd gzip
+
+	# A deploy restarts the single app container, so hold requests until it's
+	# back rather than failing them.
+	reverse_proxy app:3000 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}
