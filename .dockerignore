@@ -2,3 +2,5 @@ node_modules
 .git
 client/
 mcp-server/
+.env
+.env.*
