@@ -19,16 +19,19 @@ const plaidAccessToken = `access_${randomUUID()}`;
 const quilttConnectionId = `conn_${randomUUID().slice(0, 8)}`;
 const quilttProfileId = `p_${randomUUID().slice(0, 8)}`;
 
-vi.mock("../lib/middleware", () => ({
-  requireAuth: vi.fn((c: any, next: any) => {
+vi.mock("../lib/middleware", () => {
+  const injectUser = vi.fn((c: any, next: any) => {
     c.set("user", {
       id: testUserId,
       name: "Test User",
       email: `${testUserId}@test.com`,
     });
     return next();
-  }),
-}));
+  });
+  // accountRoutes uses requireAuth (read endpoints) and requireSession
+  // (mutations); both inject the test user here.
+  return { requireAuth: injectUser, requireSession: injectUser };
+});
 
 vi.mock("$lib/sync/plaid.service", () => ({
   plaidService: {
