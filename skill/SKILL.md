@@ -75,7 +75,7 @@ curl -s -G "$BASE_URL/api/transactions" \
   --data-urlencode "merchants=Starbucks,Walmart" \
   --data-urlencode "accountId=123" \
   --data-urlencode "limit=100" \
-  --data-urlencode "cursor=CURSOR_VALUE" \
+  --data-urlencode "cursor=YYYY-MM-DD:ID" \
   --data-urlencode "pending=false" \
   --data-urlencode "status=active,hidden" \
   --data-urlencode "fields=name,amount,date,merchantName" \
@@ -95,7 +95,7 @@ All query parameters are **optional**. Only include the ones you need.
 | `merchants` | comma-separated | Filter by exact merchant names |
 | `accountId` | number | Filter by account ID |
 | `limit` | number | Max results (default 100, max 500) |
-| `cursor` | string | Cursor for pagination (from previous response) |
+| `cursor` | string | Next page: `<date>:<id>` of the last transaction you received. Date sort only |
 | `pending` | boolean | Filter pending transactions |
 | `status` | comma-separated | Filter by status: `active`, `hidden`, `deleted` |
 | `fields` | comma-separated | Return only these fields per transaction (reduces payload) |
@@ -201,9 +201,9 @@ Response (`201`):
 
 ## Tips
 
-- **Use SQL for aggregations** — monthly totals, top merchants, category breakdowns. It's faster and returns less data than fetching all transactions.
+- **Use SQL for aggregations** — monthly totals, top merchants, recurring charges. It's faster and returns less data than fetching all transactions. Transactions have no categories; group by `COALESCE(merchant_name, name)`.
 - **Use `fields` parameter** on GET /api/transactions to reduce payload size when you only need a few columns.
-- **Pagination**: if there are more results, the response includes a cursor. Pass it as `cursor` in the next request.
+- **Pagination**: the response doesn't include a cursor. If a page returns `limit` transactions, request the next one with `cursor=<date>:<id>` from the last transaction, keeping the other parameters the same. Cursors only work with the default date sort.
 - **Amount values** are positive for debits (money spent) and negative for credits (money received).
 - When constructing SQL, always reference the `txns` CTE directly — do not define your own CTE or use transaction control statements.
 - **Disconnected accounts**: if an account has a `syncError`, create a reconnect link and send it to the owner rather than asking them to open the app.
