@@ -148,7 +148,9 @@
       </h1>
       <p class="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
         Sign in to {institution} again to keep
-        <span class="font-mono text-[var(--text)]">{account}</span> syncing.
+        <span class="font-mono text-[13px] whitespace-nowrap text-[var(--text)]"
+          >{account}</span
+        > syncing.
       </p>
       <Button
         class="mt-7 w-full"
