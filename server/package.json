@@ -19,6 +19,7 @@
     "drizzle-orm": "^0.41.0",
     "fuzzball": "^2.2.3",
     "hono": "^4.7.0",
+    "pgsql-parser": "17.9.17",
     "plaid": "^41.1.0",
     "postgres": "^3.4.0",
     "resend": "^6.9.2",

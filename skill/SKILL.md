@@ -107,7 +107,11 @@ All query parameters are **optional**. Only include the ones you need.
 
 ## 3. Query Transactions (SQL)
 
-Run a SQL SELECT against the `txns` CTE for aggregations, grouping, and analysis. The query runs read-only with a 5-second timeout and 1000-row limit.
+Run one validated SQL SELECT (maximum 2000 characters) against the unqualified `txns` relation for aggregations, grouping, and analysis. Only the caller's transactions are available; deleted transactions and hidden accounts are excluded. The query runs read-only with a 5-second timeout and a maximum of 1000 result rows. Aggregations still use all matching input rows, and smaller LIMITs and OFFSETs are preserved.
+
+Filtering, DISTINCT, grouping, HAVING, sorting, subqueries, joins, and UNION/UNION ALL are supported. Every table source must be `txns` or a derived SELECT whose sources are `txns`. Other tables and schemas, caller-defined CTEs, window functions, SELECT INTO, locking clauses, table functions, transaction commands, and multiple statements are rejected.
+
+Approved functions: COUNT, SUM, AVG, MIN, MAX, ABS, ROUND, CEIL, CEILING, FLOOR, LOWER, UPPER, LENGTH, TRIM, BTRIM, LTRIM, RTRIM, SUBSTRING, SUBSTR, REPLACE, DATE_TRUNC, DATE_PART, EXTRACT, TO_CHAR. CASE, COALESCE, NULLIF, GREATEST, LEAST, CURRENT_DATE, and CURRENT_TIMESTAMP are also supported. Casts are limited to built-in boolean, integer, numeric, floating-point, text, date, timestamp, and interval types. Arithmetic, comparisons, LIKE/ILIKE, IN, BETWEEN, and NULL/boolean tests are supported; custom operators, regex operators, COLLATE, and unlisted syntax are rejected. Function and type names may be unqualified or qualified with `pg_catalog`.
 
 ```bash
 curl -s -X POST "$BASE_URL/api/transactions/query" \

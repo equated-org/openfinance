@@ -46,7 +46,7 @@
     },
     {
       "name": "query_transactions",
-      "description": "Run a SQL query against the user's transactions for aggregation and analysis. Write SELECT queries against a `txns` CTE with columns: id, name, amount, date, merchant_name, etc. Runs read-only with 5s timeout and 1000 row limit."
+      "description": "Run a validated SQL SELECT against the user's scoped `txns` relation for aggregation and analysis. Supports subqueries, joins, UNIONs, and approved analysis functions; rejects other relations, caller-defined CTEs, and window functions. Runs read-only with a 5s timeout and 1000 result-row limit."
     }
   ],
   "keywords": ["finance", "banking", "transactions", "accounts"],

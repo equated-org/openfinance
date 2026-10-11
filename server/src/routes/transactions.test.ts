@@ -177,4 +177,33 @@ describe("Transaction routes", () => {
     const body = await res.json();
     expect(body).toHaveProperty("error");
   });
+
+  it.each([
+    "SELECT * FROM transactions",
+    "SELECT * FROM txns WHERE EXISTS (SELECT 1 FROM public.transactions)",
+    "SELECT pg_read_file('/etc/passwd') FROM txns",
+    "WITH txns AS (SELECT * FROM transactions) SELECT * FROM txns",
+    "SELECT * FROM txns; SELECT * FROM transactions",
+    " ",
+  ])("POST /query rejects unsafe or oversized SQL: %s", async (sql) => {
+    const res = await app.request("/api/transactions/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).not.toHaveProperty("rows");
+    expect(body).toHaveProperty("error");
+  });
+
+  it("POST /query rejects SQL longer than 2000 characters", async () => {
+    const res = await app.request("/api/transactions/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: "x".repeat(2001) }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).not.toHaveProperty("rows");
+  });
 });

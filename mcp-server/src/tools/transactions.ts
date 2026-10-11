@@ -83,7 +83,9 @@ export function registerTransactionTools(
 
   server.tool(
     "query_transactions",
-    `Run a SQL query against the user's transactions. Write a SELECT query referencing the \`txns\` CTE which has columns: id, name, amount (numeric), date, authorized_date, merchant_name, pending, iso_currency_code, account_id, status, created_at, updated_at. The query runs in a read-only transaction with a 5s timeout. Errors are returned so you can self-correct SQL syntax.
+    `Run a validated SQL SELECT against the user's transactions. Reference only the unqualified \`txns\` relation, which has columns: id, name, amount (numeric), date, authorized_date, merchant_name, pending, iso_currency_code, account_id, status, created_at, updated_at. Deleted transactions and hidden accounts are excluded. Subqueries, joins, and UNION/UNION ALL are supported when all sources are txns. Caller-defined CTEs, window functions, other relations, and unapproved functions/types/operators are rejected. The query runs in a read-only transaction with a 5s timeout and a maximum of 1000 result rows (aggregations use all matching input rows). Errors are returned so you can self-correct SQL syntax.
+
+Approved functions: COUNT, SUM, AVG, MIN, MAX, ABS, ROUND, CEIL, CEILING, FLOOR, LOWER, UPPER, LENGTH, TRIM, BTRIM, LTRIM, RTRIM, SUBSTRING, SUBSTR, REPLACE, DATE_TRUNC, DATE_PART, EXTRACT, TO_CHAR. Also supports CASE, COALESCE, NULLIF, GREATEST, LEAST, CURRENT_DATE, CURRENT_TIMESTAMP, and casts to built-in boolean, integer, numeric, floating-point, text, date, timestamp, and interval types.
 
 Example queries:
 - SELECT SUM(amount), COUNT(*) FROM txns WHERE merchant_name ILIKE '%starbucks%'
@@ -92,8 +94,10 @@ Example queries:
     {
       sql: z
         .string()
+        .min(1)
+        .max(2000)
         .describe(
-          "SQL SELECT query referencing the `txns` CTE. Do not include CTE definition or transaction control statements.",
+          "One SQL SELECT (max 2000 characters) referencing only `txns`. Do not include your own CTE, window functions, or transaction control statements.",
         ),
     },
     async (params) => {

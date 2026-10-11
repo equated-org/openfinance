@@ -13,6 +13,10 @@ import {
 } from "drizzle-orm";
 import { client, db } from "../db";
 import { financialAccounts, transactions } from "../schema";
+import {
+  prepareTransactionQuery,
+  TransactionQueryError,
+} from "./transaction-query";
 import type {
   AmountFilter,
   ApiTransaction,
@@ -239,27 +243,32 @@ class TransactionService {
     userSql: string,
   ): Promise<QueryTransactionsResponse | QueryTransactionsErrorResponse> {
     try {
+      const validatedSql = await prepareTransactionQuery(userSql);
       const rows = await client.begin("READ ONLY", async (tx) => {
         await tx.unsafe("SET LOCAL statement_timeout = '5s'");
+        await tx.unsafe("SET LOCAL search_path = pg_catalog, pg_temp");
+        await tx.unsafe("SET LOCAL standard_conforming_strings = on");
         return tx.unsafe(
           `WITH txns AS (
   SELECT
     id, name, amount::numeric, date, authorized_date,
     merchant_name, pending, iso_currency_code,
     account_id, status, created_at, updated_at
-  FROM transactions
+  FROM public.transactions
   WHERE user_id = $1 AND status != 'deleted'
-    AND account_id NOT IN (SELECT id FROM financial_accounts WHERE status = 'hidden' AND user_id = $1)
+    AND account_id NOT IN (SELECT id FROM public.financial_accounts WHERE status = 'hidden' AND user_id = $1)
 )
-${userSql}`,
+${validatedSql}`,
           [userId],
         );
       });
       return { rows: Array.from(rows), rowCount: rows.length };
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Query execution failed";
-      return { error: message };
+      if (error instanceof TransactionQueryError) {
+        return { error: error.message };
+      }
+      console.error("Transaction query failed", error);
+      return { error: "Query execution failed" };
     }
   }
 }

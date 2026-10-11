@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { requireAuth, type AuthEnv } from "../lib/middleware";
 import { transactionService } from "../lib/transaction.service";
+import { MAX_QUERY_LENGTH } from "../lib/transaction-query";
 import type {
   ApiTransaction,
   GetTransactionsResponse,
@@ -112,9 +113,9 @@ transactionRoutes.get(
   },
 );
 
-// POST /api/transactions/query — raw SQL against a safe CTE
+// POST /api/transactions/query — validated SELECT over the scoped txns relation
 const queryBodySchema = z.object({
-  sql: z.string().min(1).max(2000),
+  sql: z.string().min(1).max(MAX_QUERY_LENGTH),
 });
 
 transactionRoutes.post(
