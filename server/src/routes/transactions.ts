@@ -20,15 +20,30 @@ const csv = z
   )
   .pipe(z.array(z.string()).min(1));
 
+// Parse a query-string value as JSON. Invalid JSON is surfaced as a validation
+// issue so zValidator responds with 400 rather than letting the SyntaxError
+// bubble up into a 500.
+const jsonParam = (label: string) =>
+  z.string().transform((s, ctx) => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      ctx.addIssue({
+        code: "custom",
+        message: `${label} must be a valid JSON string`,
+        input: s,
+      });
+      return z.NEVER;
+    }
+  });
+
 const transactionQuerySchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   search: z.string().optional(),
   searchPatterns: csv.optional(),
   merchants: csv.optional(),
-  amountFilters: z
-    .string()
-    .transform((s) => JSON.parse(s))
+  amountFilters: jsonParam("amountFilters")
     .pipe(
       z.array(
         z.object({
@@ -38,9 +53,7 @@ const transactionQuerySchema = z.object({
       ),
     )
     .optional(),
-  sort: z
-    .string()
-    .transform((s) => JSON.parse(s))
+  sort: jsonParam("sort")
     .pipe(
       z.object({
         orderField: z.enum(["date", "amount", "createdAt"]),

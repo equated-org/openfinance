@@ -150,6 +150,31 @@ describe("Transaction routes", () => {
     }
   });
 
+  it("GET /?amountFilters=... parses valid JSON", async () => {
+    const res = await app.request(
+      `/api/transactions?amountFilters=${encodeURIComponent(
+        '[{"operator":">=","amount":50}]',
+      )}`,
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.transactions).toHaveLength(1);
+    expect(body.transactions[0].name).toBe("Grocery Run");
+  });
+
+  it("GET / returns 400 (not 500) for invalid amountFilters JSON", async () => {
+    const res = await app.request(
+      "/api/transactions?amountFilters=not-json",
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("GET / returns 400 (not 500) for invalid sort JSON", async () => {
+    const res = await app.request("/api/transactions?sort=%7Bbroken");
+    expect(res.status).toBe(400);
+  });
+
   it("POST /query runs SQL and returns rows", async () => {
     const res = await app.request("/api/transactions/query", {
       method: "POST",
