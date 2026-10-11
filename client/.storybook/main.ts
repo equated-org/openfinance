@@ -6,6 +6,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const config: StorybookConfig = {
   stories: ["../src/**/*.stories.@(js|ts|svelte)"],
+  // Serve the app's static files so /favicon.svg is the OpenFinance logo,
+  // as it is in the app, rather than Storybook's own icon.
+  staticDirs: ["../static"],
   addons: [],
   framework: {
     name: "@storybook/sveltekit",
