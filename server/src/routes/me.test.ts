@@ -155,6 +155,7 @@ describe("DELETE /api/me/delete-account", () => {
         type: "account_disconnected",
         connectionId: conn.id,
         institutionName: "Delete Test Bank",
+        institutionUrl: "https://deletetest.com",
       },
     });
 
