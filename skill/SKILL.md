@@ -160,7 +160,16 @@ Error: `{ "error": "error message" }` — fix the SQL and retry.
 
 ## 4. Create Reconnect Link
 
-Create a public link that reconnects a disconnected account without signing in to OpenFinance. Give the URL to the account's owner. Opening it walks them through their bank's sign-in (Plaid or Quiltt), then shows the account re-syncing.
+Create a public link that reconnects a disconnected account without signing in to OpenFinance. Give the URL to the account's owner. Opening it walks them through their bank's sign-in (Plaid or Quiltt), then shows the account re-syncing. Only the owner can finish this step: bank credentials and verification codes can't be sent through the API.
+
+Find accounts that need reconnecting:
+
+```bash
+curl -s "$BASE_URL/api/accounts" -H "$AUTH_HEADER" \
+  | jq '.accounts[] | select(.syncError != null) | {id, institutionName, syncError}'
+```
+
+Create a link for one of them:
 
 ```bash
 curl -s -X POST "$BASE_URL/api/accounts/ACCOUNT_ID/reconnect-link" \
@@ -180,6 +189,7 @@ Response (`201`):
 ```
 
 - Links expire after **24 hours**. Once the account is reconnected, the link only shows the sync's progress. If the bank still wants a sign-in afterwards, the same link can try again.
+- To check it worked, poll `GET /api/accounts`: the account's `syncError` turns `null` as soon as the owner reconnects, and `isSyncing` stays `true` until the re-sync finishes, which can take a few minutes.
 - Reconnecting repairs the account's whole bank connection, so it also fixes the other accounts linked through the same sign-in.
 - `404`: no account with that ID. `422`: the account's provider (MX) isn't supported.
 
