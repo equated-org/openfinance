@@ -29,15 +29,25 @@ cd mcp-server
 npm publish --access public
 ```
 
-Requires an OTP from your authenticator app. The `prepack` script automatically rebuilds and bundles.
+Requires an OTP from your authenticator app. The `prepack` script runs `pnpm bundle`, which rebuilds and packs `openfinance.mcpb` from a staging directory that holds only `manifest.json`, `package.json`, and `build/`. Nothing else in `mcp-server/` can end up in the bundle. Before entering the OTP, check that the archive contents it prints are only those files.
 
 ### 3. Update registry
 
+Install `mcp-publisher` with Homebrew rather than downloading the binary into the repo:
+
+```sh
+brew install mcp-publisher
+```
+
+Then publish from `mcp-server/`:
+
 ```sh
 cd mcp-server
-./mcp-publisher login github
-./mcp-publisher publish
+mcp-publisher login github
+mcp-publisher publish
 ```
+
+Current releases store the login token in `~/.config/mcp-publisher/`. Older releases wrote `.mcpregistry_*` token files to the working directory, so those files are gitignored.
 
 ### Verify
 

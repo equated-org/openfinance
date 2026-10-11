@@ -1,3 +1,6 @@
 node_modules
 build
 openfinance.mcpb
+# Older mcp-publisher releases leave these here after `login`
+mcp-publisher
+.mcpregistry_*

@@ -17,7 +17,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsup",
     "start": "node build/index.js",
-    "bundle": "pnpm build && mcpb pack . openfinance.mcpb",
+    "bundle": "pnpm build && node scripts/bundle.js",
     "prepack": "pnpm run bundle"
   },
   "dependencies": {
