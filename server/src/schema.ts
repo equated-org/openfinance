@@ -42,6 +42,12 @@ export {
 } from "./lib/sql/sync-jobs.sql";
 
 export {
+  reconnectLinks,
+  type ReconnectLink,
+  type NewReconnectLink,
+} from "./lib/sql/reconnect-links.sql";
+
+export {
   notifications,
   type AccountDisconnectedMetadata,
   type TransactionSyncMetadata,

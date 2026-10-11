@@ -20,6 +20,7 @@ import taskRoutes from "./routes/tasks.js";
 import billingRoutes from "./routes/billing.js";
 import stripeWebhookRoutes from "./routes/stripe-webhook.js";
 import notificationRoutes from "./routes/notifications.js";
+import reconnectLinkRoutes from "./routes/reconnect-links.js";
 
 const app = new Hono();
 
@@ -48,6 +49,7 @@ app.route("/api/tasks", taskRoutes);
 app.route("/api/billing", billingRoutes);
 app.route("/api/stripe", stripeWebhookRoutes);
 app.route("/api/notifications", notificationRoutes);
+app.route("/api/reconnect-links", reconnectLinkRoutes);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 

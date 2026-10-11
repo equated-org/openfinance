@@ -22,6 +22,14 @@ export type {
 export type { ConnectedAccount } from "./types/account.js";
 
 export type {
+  ReconnectProvider,
+  CreatedReconnectLink,
+  ReconnectLinkState,
+  ReconnectLinkStatus,
+  ReconnectSession,
+} from "./types/reconnect.js";
+
+export type {
   ApiNotification,
   GetNotificationsResponse,
   NotificationFilter,

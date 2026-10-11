@@ -24,6 +24,21 @@ class PlaidService {
     };
   }
 
+  /**
+   * Link token for update mode, which re-authenticates an existing Item. Plaid
+   * expires it after 30 minutes, so create it right before opening Link.
+   */
+  async createUpdateLinkToken(userId: string, accessToken: string) {
+    const response = await plaidClient.linkTokenCreate({
+      user: { client_user_id: userId },
+      client_name: "Open Finance",
+      access_token: accessToken,
+      country_codes: PLAID_COUNTRY_CODES,
+      language: "en",
+    });
+    return response.data.link_token;
+  }
+
   async getInstitutionInfo(institutionId: string) {
     const response = await plaidClient.institutionsGetById({
       institution_id: institutionId,
