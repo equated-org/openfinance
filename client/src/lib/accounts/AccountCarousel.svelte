@@ -36,7 +36,12 @@
   }
 </script>
 
-<div class="relative group -mx-8" role="region" aria-label="Accounts carousel">
+<!-- Bleeds into the page gutter (px-4 on mobile, px-8 from md) so cards scroll to the edge. -->
+<div
+  class="relative group -mx-4 md:-mx-8"
+  role="region"
+  aria-label="Accounts carousel"
+>
   <div
     class="overflow-hidden"
     use:emblaCarouselSvelte={{
@@ -45,7 +50,7 @@
     }}
     onemblaInit={onInit}
   >
-    <div class="flex gap-4 px-8">
+    <div class="flex gap-4 px-4 md:px-8">
       {#each accounts as account (account.id)}
         <div class="flex-shrink-0">
           <AccountCard {account} {onReauth} onClick={onAccountClick} />

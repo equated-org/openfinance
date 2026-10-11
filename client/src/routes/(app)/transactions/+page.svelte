@@ -54,20 +54,21 @@
   );
 </script>
 
-<div class="max-w-4xl mx-auto px-8 pt-2">
-  <div class="flex items-center justify-between mb-6">
+<div class="max-w-4xl mx-auto md:px-8 pt-2">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <h2 class="text-base font-semibold text-[var(--text)]">Transactions</h2>
 
-    <div class="flex items-center gap-3">
-      <div class="relative">
+    <div class="flex w-full items-center gap-3 sm:w-auto">
+      <div class="relative min-w-0 flex-1 sm:flex-none">
         <Search
           class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--text-muted)] pointer-events-none"
         />
+        <!-- No text-sm override: the Input's 16px mobile size stops iOS zooming on focus. -->
         <Input
           type="text"
           placeholder="Search transactions..."
           bind:value={searchText}
-          class="pl-9 w-56 h-8 text-sm"
+          class="pl-9 w-full sm:w-56 h-8"
         />
       </div>
 
@@ -77,7 +78,7 @@
             <Button
               variant="outline"
               size="sm"
-              class="h-8 text-sm gap-1.5 whitespace-nowrap"
+              class="h-8 max-w-40 sm:max-w-none text-sm gap-1.5 whitespace-nowrap"
               {...props}
             >
               {#if selectedAccount}
@@ -86,7 +87,7 @@
                   institutionName={selectedAccount.institutionName}
                 />
               {/if}
-              <span>{selectedAccountLabel}</span>
+              <span class="truncate">{selectedAccountLabel}</span>
               <ChevronDown class="ml-0.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
             </Button>
           {/snippet}

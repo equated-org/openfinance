@@ -5,6 +5,13 @@
   import ArrowLeftRight from "lucide-svelte/icons/arrow-left-right";
   import Plug from "lucide-svelte/icons/plug";
 
+  interface Props {
+    /** Called when a nav link is clicked, e.g. to close the mobile drawer. */
+    onNavigate?: () => void;
+  }
+
+  let { onNavigate }: Props = $props();
+
   const navItems = [
     { href: "/", label: "Home", icon: House },
     { href: "/accounts", label: "Accounts", icon: Wallet },
@@ -23,6 +30,7 @@
     {@const active = isActive($page.url.pathname, item.href)}
     <a
       href={item.href}
+      onclick={onNavigate}
       class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-full transition-colors {active
         ? 'bg-[var(--bg-muted)] text-[var(--text)]'
         : 'text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]'}"
