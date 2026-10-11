@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "openfinance",
   "display_name": "OpenFinance",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Connect your financial accounts to view balances, search transactions, and get spending insights.",
   "author": {
     "name": "OpenFinance"
@@ -39,6 +39,10 @@
     {
       "name": "get_accounts",
       "description": "Get all connected financial accounts with balances and institution info"
+    },
+    {
+      "name": "create_reconnect_link",
+      "description": "Create a link that reconnects a disconnected bank account without signing in to OpenFinance. Use it when get_accounts shows a syncError, then give the URL to the account's owner. Links expire after 24 hours."
     },
     {
       "name": "get_transactions",

@@ -66,15 +66,12 @@ plaidRoutes.post(
       return c.json({ error: "Plaid account not found" }, 404);
     }
 
-    const response = await plaidClient.linkTokenCreate({
-      user: { client_user_id: user.id },
-      client_name: "Open Finance",
-      access_token: result.plaidAccessToken,
-      country_codes: PLAID_COUNTRY_CODES,
-      language: "en",
-    });
+    const linkToken = await plaidService.createUpdateLinkToken(
+      user.id,
+      result.plaidAccessToken,
+    );
 
-    return c.json({ link_token: response.data.link_token });
+    return c.json({ link_token: linkToken });
   },
 );
 

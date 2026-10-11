@@ -1,38 +1,6 @@
-<script module lang="ts">
-  // Declare Quiltt global (loaded via script tag)
-  declare const Quiltt: {
-    authenticate: (token: string) => void;
-    connect: (
-      connectorId: string,
-      options: {
-        institution?: string;
-        onLoad?: (metadata: QuilttMetadata) => void;
-        onExitSuccess?: (metadata: QuilttMetadata) => void;
-        onExitAbort?: (metadata: QuilttMetadata) => void;
-        onExitError?: (metadata: QuilttMetadata) => void;
-      },
-    ) => { open: () => void };
-    reconnect: (
-      connectorId: string,
-      options: {
-        connectionId: string;
-        onLoad?: (metadata: QuilttMetadata) => void;
-        onExitSuccess?: (metadata: QuilttMetadata) => void;
-        onExitAbort?: (metadata: QuilttMetadata) => void;
-        onExitError?: (metadata: QuilttMetadata) => void;
-      },
-    ) => { open: () => void };
-  };
-
-  interface QuilttMetadata {
-    connectorId: string;
-    profileId?: string;
-    connectionId?: string;
-  }
-</script>
-
 <script lang="ts">
   import { createQuilttSession, quilttCallback } from "./api";
+  import { loadQuilttSdk } from "./sdk";
   import { triggerPoll } from "./sync-status";
   import { toast } from "svelte-sonner";
 
@@ -47,30 +15,6 @@
   // State
   let isLinking = $state(false);
   let currentRegistryId = $state<number | undefined>();
-
-  // SDK loading
-  let quilttLoaded = false;
-
-  async function loadQuilttSdk(): Promise<void> {
-    if (
-      quilttLoaded ||
-      (typeof window !== "undefined" && (window as any).Quiltt)
-    ) {
-      quilttLoaded = true;
-      return;
-    }
-
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdn.quiltt.io/v1/connector.js";
-      script.onload = () => {
-        quilttLoaded = true;
-        resolve();
-      };
-      script.onerror = () => reject(new Error("Failed to load Quiltt SDK"));
-      document.head.appendChild(script);
-    });
-  }
 
   /**
    * Normalize institution name for Quiltt search.
@@ -97,11 +41,11 @@
 
       const sessionData = await createQuilttSession();
 
-      Quiltt.authenticate(sessionData.token);
+      window.Quiltt.authenticate(sessionData.token);
 
       const profileId = sessionData.profileId;
 
-      const connector = Quiltt.connect(sessionData.connectorId, {
+      const connector = window.Quiltt.connect(sessionData.connectorId, {
         institution: institutionName
           ? normalizeInstitutionName(institutionName)
           : undefined,
@@ -157,11 +101,11 @@
 
       const sessionData = await createQuilttSession();
 
-      Quiltt.authenticate(sessionData.token);
+      window.Quiltt.authenticate(sessionData.token);
 
       const profileId = sessionData.profileId;
 
-      const connector = Quiltt.reconnect(sessionData.connectorId, {
+      const connector = window.Quiltt.reconnect(sessionData.connectorId, {
         connectionId: quilttConnectionId,
         onExitSuccess: (metadata) => {
           handleSuccess(metadata.connectionId!, profileId);

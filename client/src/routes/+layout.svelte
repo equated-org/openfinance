@@ -10,8 +10,11 @@
 
   const session = authClient.useSession();
 
+  // Reconnect links are opened by people who aren't signed in.
+  const isPublicPage = $derived($page.url.pathname.startsWith("/reconnect/"));
+
   $effect(() => {
-    if ($session.isPending) return;
+    if ($session.isPending || isPublicPage) return;
 
     const isLoginPage = $page.url.pathname.startsWith("/login");
 
@@ -25,7 +28,7 @@
 
 <ModeWatcher modeStorageKey="openfinance-app-mode" />
 
-{#if $session.isPending}
+{#if $session.isPending && !isPublicPage}
   <div class="flex min-h-screen items-center justify-center">
     <div
       class="h-8 w-8 animate-spin rounded-full border-4 border-[var(--border)] border-t-[var(--text)]"

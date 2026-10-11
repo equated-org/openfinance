@@ -46,8 +46,16 @@ export interface ConnectedAccount {
   syncError: { message: string; lastFailedAt: string } | null;
   isSyncing: boolean;
   connectionId: number;
-  provider: "plaid" | "mx";
+  provider: "plaid" | "mx" | "quiltt";
   status: "active" | "hidden";
+}
+
+export interface ReconnectLink {
+  url: string;
+  expiresAt: string;
+  accountId: number;
+  institutionName: string;
+  provider: "plaid" | "quiltt";
 }
 
 export interface ApiTransaction {
