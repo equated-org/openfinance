@@ -11,7 +11,7 @@
   const session = authClient.useSession();
 
   // Reconnect links are opened by people who aren't signed in.
-  const isPublicPage = $derived($page.url.pathname.startsWith("/reconnect/"));
+  const isPublicPage = $derived($page.url.pathname.startsWith("/reconnect"));
 
   $effect(() => {
     if ($session.isPending || isPublicPage) return;

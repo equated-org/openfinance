@@ -36,7 +36,6 @@ const link: ReconnectLinkStatus = {
   accountMask: "4321",
   expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
   state: "ready",
-  message: null,
 };
 
 const handlers = {
@@ -63,6 +62,14 @@ export const ReadyQuiltt: Story = {
   },
 };
 
+export const ReadyUnknownBank: Story = {
+  args: {
+    state: "ready",
+    link: { ...link, institutionName: null, institutionUrl: null },
+    ...handlers,
+  },
+};
+
 export const Connecting: Story = {
   args: { state: "connecting", link, ...handlers },
 };
@@ -71,30 +78,12 @@ export const Syncing: Story = {
   args: { state: "syncing", link: { ...link, state: "syncing" } },
 };
 
-export const SyncingForAWhile: Story = {
-  args: { state: "syncing", link: { ...link, state: "syncing" }, slow: true },
-};
-
 export const Synced: Story = {
   args: { state: "synced", link: { ...link, state: "synced" } },
 };
 
-export const SyncedStillCatchingUp: Story = {
-  args: {
-    state: "synced",
-    link: { ...link, state: "synced" },
-    message:
-      "Your bank is still sending data. New transactions will show up on their own.",
-  },
-};
-
 export const Failed: Story = {
-  args: {
-    state: "failed",
-    link: { ...link, state: "failed" },
-    message: "Your bank connection needs to be reauthorized. Please reconnect.",
-    ...handlers,
-  },
+  args: { state: "failed", link, ...handlers },
 };
 
 export const Expired: Story = {
