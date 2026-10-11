@@ -8,7 +8,7 @@ export function registerTransactionTools(
 ) {
   server.tool(
     "get_transactions",
-    "Search and filter financial transactions. Returns transactions sorted by date (newest first) by default. Use the `fields` parameter to reduce payload size by requesting only the fields you need. For spending analysis, aggregations, or category breakdowns, use the `query_transactions` tool instead — it lets you write SQL for efficient server-side computation.",
+    "Search and filter financial transactions. Returns transactions sorted by date (newest first) by default. Use the `fields` parameter to reduce payload size by requesting only the fields you need. For spending analysis and aggregations, use the `query_transactions` tool instead — it lets you write SQL for efficient server-side computation. Transactions have no category field.",
     {
       startDate: z
         .string()
@@ -31,7 +31,12 @@ export function registerTransactionTools(
         .max(500)
         .describe("Max results (default 100, max 500)")
         .optional(),
-      cursor: z.string().describe("Cursor for pagination").optional(),
+      cursor: z
+        .string()
+        .describe(
+          "Next page: `<date>:<id>` of the last transaction you received (the response has no cursor field; build it yourself). Works with the default date sort only.",
+        )
+        .optional(),
       pending: z.boolean().describe("Filter pending transactions").optional(),
       status: z
         .array(z.enum(["active", "hidden", "deleted"]))
