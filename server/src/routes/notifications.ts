@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { requireAuth, type AuthEnv } from "../lib/middleware";
+import { requireSession, type AuthEnv } from "../lib/middleware";
 import { db } from "../db.js";
 import { notifications } from "../schema.js";
 import { eq, and, desc, isNull, or, lt, sql } from "drizzle-orm";
@@ -9,7 +9,7 @@ import type { ApiNotification } from "@openfinance/shared";
 
 const notificationRoutes = new Hono<AuthEnv>();
 
-notificationRoutes.use("*", requireAuth);
+notificationRoutes.use("*", requireSession);
 
 const querySchema = z.object({
   limit: z.coerce.number().int().positive().optional().default(30),

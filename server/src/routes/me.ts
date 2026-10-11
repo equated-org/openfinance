@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAuth, type AuthEnv } from "../lib/middleware";
+import { requireSession, type AuthEnv } from "../lib/middleware";
 import { db } from "../db";
 import {
   user as userTable,
@@ -14,7 +14,7 @@ import { mxService } from "$lib/sync/mx.service";
 
 const meRoutes = new Hono<AuthEnv>();
 
-meRoutes.use("*", requireAuth);
+meRoutes.use("*", requireSession);
 
 // POST /api/me/dismiss-onboarding
 meRoutes.post("/dismiss-onboarding", async (c) => {

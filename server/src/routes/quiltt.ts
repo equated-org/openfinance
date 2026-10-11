@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { quilttService } from "$lib/sync/quiltt.service";
-import { requireAuth, type AuthEnv } from "$lib/middleware";
+import { requireSession, type AuthEnv } from "$lib/middleware";
 import { billingService } from "$lib/billing";
 import { db } from "../db";
 import { accountConnections, user as userTable } from "../schema";
@@ -16,7 +16,7 @@ const callbackSchema = z.object({
 
 const quilttRoutes = new Hono<AuthEnv>();
 
-quilttRoutes.use("*", requireAuth);
+quilttRoutes.use("*", requireSession);
 
 // POST /api/quiltt/session - Create a Quiltt session token
 quilttRoutes.post("/session", async (c) => {

@@ -1,22 +1,30 @@
 import { createMiddleware } from "hono/factory";
+import type { Context } from "hono";
 import crypto from "node:crypto";
 import { auth } from "../auth.js";
 import { db } from "../db.js";
 import { apiKeys, user as userTable } from "../schema.js";
 import { eq } from "drizzle-orm";
 
-export type AuthEnv = {
-  Variables: {
-    user: { id: string; name: string; email: string; image?: string | null };
-  };
-};
-
-async function authenticateApiKey(authHeader: string): Promise<{
+type AuthUser = {
   id: string;
   name: string;
   email: string;
   image?: string | null;
-} | null> {
+};
+
+export type AuthEnv = {
+  Variables: {
+    user: AuthUser;
+    // How the request authenticated. API keys are read-only, so endpoints that
+    // mutate account state or expose sensitive data must use `requireSession`.
+    authMethod: "session" | "apiKey";
+  };
+};
+
+async function authenticateApiKey(
+  authHeader: string,
+): Promise<AuthUser | null> {
   const token = authHeader.replace(/^Bearer\s+/i, "");
   if (!token.startsWith("sk-")) return null;
 
@@ -70,27 +78,51 @@ async function authenticateApiKey(authHeader: string): Promise<{
   return u;
 }
 
-export const requireAuth = createMiddleware<AuthEnv>(async (c, next) => {
-  // Try API key auth first
-  const authHeader = c.req.header("Authorization");
-  if (authHeader?.startsWith("Bearer sk-")) {
-    const apiUser = await authenticateApiKey(authHeader);
-    if (apiUser) {
-      c.set("user", apiUser);
-      return next();
-    }
-    return c.json({ error: "Invalid API key" }, 401);
-  }
-
-  // Fall back to session auth
+async function getSessionUser(c: Context): Promise<AuthUser | null> {
   const session = await auth.api.getSession({
     headers: c.req.raw.headers,
   });
+  return session?.user ?? null;
+}
 
-  if (!session) {
-    return c.json({ error: "Unauthorized" }, 401);
+function presentsApiKey(c: Context): boolean {
+  return c.req.header("Authorization")?.startsWith("Bearer sk-") ?? false;
+}
+
+// Authenticate via session OR API key. API keys are read-only, so this may only
+// guard endpoints that read data (accounts list, transactions). Anything that
+// mutates account state or exposes sensitive data must use `requireSession`.
+export const requireAuth = createMiddleware<AuthEnv>(async (c, next) => {
+  const authHeader = c.req.header("Authorization");
+  if (authHeader?.startsWith("Bearer sk-")) {
+    const apiUser = await authenticateApiKey(authHeader);
+    if (!apiUser) return c.json({ error: "Invalid API key" }, 401);
+    c.set("user", apiUser);
+    c.set("authMethod", "apiKey");
+    return next();
   }
 
-  c.set("user", session.user);
+  const sessionUser = await getSessionUser(c);
+  if (!sessionUser) return c.json({ error: "Unauthorized" }, 401);
+  c.set("user", sessionUser);
+  c.set("authMethod", "session");
+  await next();
+});
+
+// Require a logged-in session. API keys are rejected with 403 so they cannot
+// reach account-mutating or sensitive endpoints — they are limited to reading
+// financial data through `requireAuth` routes.
+export const requireSession = createMiddleware<AuthEnv>(async (c, next) => {
+  if (presentsApiKey(c)) {
+    return c.json(
+      { error: "API keys are read-only and cannot access this endpoint" },
+      403,
+    );
+  }
+
+  const sessionUser = await getSessionUser(c);
+  if (!sessionUser) return c.json({ error: "Unauthorized" }, 401);
+  c.set("user", sessionUser);
+  c.set("authMethod", "session");
   await next();
 });

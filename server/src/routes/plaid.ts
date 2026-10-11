@@ -4,7 +4,7 @@ import { z } from "zod";
 import { Products } from "plaid";
 import { plaidClient, PLAID_COUNTRY_CODES } from "$lib/sync/plaid.client";
 import { plaidService } from "$lib/sync/plaid.service";
-import { requireAuth, type AuthEnv } from "$lib/middleware";
+import { requireSession, type AuthEnv } from "$lib/middleware";
 import { billingService } from "$lib/billing";
 import { db } from "../db";
 import { financialAccounts, accountConnections } from "../schema";
@@ -17,7 +17,7 @@ const exchangeTokenSchema = z.object({
 
 const plaidRoutes = new Hono<AuthEnv>();
 
-plaidRoutes.use("*", requireAuth);
+plaidRoutes.use("*", requireSession);
 
 // POST /api/plaid/create_link_token
 plaidRoutes.post("/create_link_token", async (c) => {

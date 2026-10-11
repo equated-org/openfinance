@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { mxService } from "$lib/sync/mx.service";
-import { requireAuth, type AuthEnv } from "$lib/middleware";
+import { requireSession, type AuthEnv } from "$lib/middleware";
 import { billingService } from "$lib/billing";
 import { db } from "../db";
 import { accountConnections, user as userTable } from "../schema";
@@ -24,7 +24,7 @@ const createWidgetUrlForUpdateSchema = z.object({
 
 const mxRoutes = new Hono<AuthEnv>();
 
-mxRoutes.use("*", requireAuth);
+mxRoutes.use("*", requireSession);
 
 // POST /api/mx/create_widget_url
 mxRoutes.post(

@@ -21,7 +21,7 @@ const testAccessToken = `access_${randomUUID()}`;
 
 // Mock auth middleware to inject our test user
 vi.mock("../lib/middleware", () => ({
-  requireAuth: vi.fn((c: any, next: any) => {
+  requireSession: vi.fn((c: any, next: any) => {
     c.set("user", {
       id: testUserId,
       name: "Test User",
@@ -250,8 +250,8 @@ describe("DELETE /api/me/delete-account", () => {
     const failUserId = `test-me-fail-${randomUUID().slice(0, 8)}`;
 
     // Override the auth mock for this test
-    const { requireAuth } = await import("../lib/middleware");
-    (requireAuth as any).mockImplementation((c: any, next: any) => {
+    const { requireSession } = await import("../lib/middleware");
+    (requireSession as any).mockImplementation((c: any, next: any) => {
       c.set("user", {
         id: failUserId,
         name: "Fail User",
@@ -313,7 +313,7 @@ describe("DELETE /api/me/delete-account", () => {
       .where(eq(institutionRegistry.id, registry.id));
 
     // Restore mock for other tests
-    (requireAuth as any).mockImplementation((c: any, next: any) => {
+    (requireSession as any).mockImplementation((c: any, next: any) => {
       c.set("user", {
         id: testUserId,
         name: "Test User",

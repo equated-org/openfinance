@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAuth, type AuthEnv } from "../lib/middleware";
+import { requireAuth, requireSession, type AuthEnv } from "../lib/middleware";
 import { financialAccountService } from "../lib/financial-account.service";
 import { reconnectLinkService } from "../lib/reconnect-link.service";
 import { db } from "../db";
@@ -8,10 +8,8 @@ import { eq } from "drizzle-orm";
 
 const accountRoutes = new Hono<AuthEnv>();
 
-accountRoutes.use("*", requireAuth);
-
-// GET /api/accounts
-accountRoutes.get("/", async (c) => {
+// GET /api/accounts — read-only, reachable with a session or an API key.
+accountRoutes.get("/", requireAuth, async (c) => {
   const user = c.get("user");
   const includeHidden = c.req.query("includeHidden") === "true";
   const includeStatus: ("active" | "hidden")[] = includeHidden
@@ -42,8 +40,8 @@ accountRoutes.get("/", async (c) => {
   return c.json({ accounts, onboarding });
 });
 
-// PATCH /api/accounts/:id/status
-accountRoutes.patch("/:id/status", async (c) => {
+// PATCH /api/accounts/:id/status — mutates account state, session only.
+accountRoutes.patch("/:id/status", requireSession, async (c) => {
   const user = c.get("user");
   const id = parseInt(c.req.param("id"), 10);
   if (isNaN(id)) return c.json({ error: "Invalid account ID" }, 400);
@@ -63,8 +61,8 @@ accountRoutes.patch("/:id/status", async (c) => {
   return c.json({ success: true });
 });
 
-// DELETE /api/accounts/:id
-accountRoutes.delete("/:id", async (c) => {
+// DELETE /api/accounts/:id — disconnects an account, session only.
+accountRoutes.delete("/:id", requireSession, async (c) => {
   const user = c.get("user");
   const id = parseInt(c.req.param("id"), 10);
   if (isNaN(id)) return c.json({ error: "Invalid account ID" }, 400);
@@ -77,8 +75,10 @@ accountRoutes.delete("/:id", async (c) => {
 
 // POST /api/accounts/:id/reconnect-link
 // Creates a public link, valid for 24 hours, that reconnects the account's
-// bank connection without signing in.
-accountRoutes.post("/:id/reconnect-link", async (c) => {
+// bank connection without signing in. Reachable with an API key so the MCP /
+// agent flow can generate a link for the account owner; the link itself still
+// requires the owner to complete their bank's sign-in.
+accountRoutes.post("/:id/reconnect-link", requireAuth, async (c) => {
   const user = c.get("user");
   const id = parseInt(c.req.param("id"), 10);
   if (isNaN(id)) return c.json({ error: "Invalid account ID" }, 400);

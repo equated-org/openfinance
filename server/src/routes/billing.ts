@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { requireAuth, type AuthEnv } from "$lib/middleware";
+import { requireSession, type AuthEnv } from "$lib/middleware";
 import { billingService } from "$lib/billing";
 import { PLAN_TYPES, type PlanType } from "@openfinance/shared";
 
 const billingRoutes = new Hono<AuthEnv>();
 
-billingRoutes.use("*", requireAuth);
+billingRoutes.use("*", requireSession);
 
 // GET /api/billing/status
 billingRoutes.get("/status", async (c) => {

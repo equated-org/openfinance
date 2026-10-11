@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAuth, type AuthEnv } from "../lib/middleware";
+import { requireSession, type AuthEnv } from "../lib/middleware";
 import { createApiKeyForUser } from "../lib/api-key.service";
 import { db } from "../db";
 import { apiKeys } from "../schema";
@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 
 const keyRoutes = new Hono<AuthEnv>();
 
-keyRoutes.use("*", requireAuth);
+keyRoutes.use("*", requireSession);
 
 // GET /api/keys — get the user's active key (single key per user)
 keyRoutes.get("/", async (c) => {

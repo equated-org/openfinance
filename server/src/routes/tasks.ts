@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireAuth, type AuthEnv } from "../lib/middleware";
+import { requireSession, type AuthEnv } from "../lib/middleware";
 import { financialAccountService } from "../lib/financial-account.service";
 
 export interface Task {
@@ -13,7 +13,7 @@ export interface Task {
 
 const taskRoutes = new Hono<AuthEnv>();
 
-taskRoutes.use("*", requireAuth);
+taskRoutes.use("*", requireSession);
 
 taskRoutes.get("/", async (c) => {
   const user = c.get("user");
