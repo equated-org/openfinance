@@ -1,5 +1,11 @@
 export const API_BASE = import.meta.env.VITE_API_URL || "";
 
+export class ApiError extends Error {
+  constructor(readonly status: number) {
+    super(`API error: ${status}`);
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   options?: RequestInit,
@@ -13,7 +19,7 @@ export async function apiFetch<T>(
     },
   });
   if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
+    throw new ApiError(response.status);
   }
   return response.json();
 }
