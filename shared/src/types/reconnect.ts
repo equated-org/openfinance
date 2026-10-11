@@ -7,29 +7,28 @@ export interface CreatedReconnectLink {
   url: string;
   expiresAt: string;
   accountId: number;
-  institutionName: string;
+  institutionName: string | null;
   provider: ReconnectProvider;
 }
 
 /**
- * - `ready`: the link hasn't been used yet; the page offers to reconnect.
- * - `syncing`: the account was reconnected and its sync is still running.
- * - `synced`: the sync after the reconnect finished.
- * - `failed`: the bank still needs attention after the reconnect.
+ * The account's connection right now, the same signal GET /api/accounts
+ * reports:
+ * - `ready`: the bank needs the owner to sign in again.
+ * - `syncing`: a sync is running, for example right after a reconnect.
+ * - `synced`: the connection is healthy.
  */
-export type ReconnectLinkState = "ready" | "syncing" | "synced" | "failed";
+export type ReconnectLinkState = "ready" | "syncing" | "synced";
 
 /** Returned by the public reconnect-link endpoints. */
 export interface ReconnectLinkStatus {
   provider: ReconnectProvider;
-  institutionName: string;
+  institutionName: string | null;
   institutionUrl: string | null;
   accountName: string;
   accountMask: string | null;
   expiresAt: string;
   state: ReconnectLinkState;
-  /** Why the sync failed, or a note about a sync that is still catching up. */
-  message: string | null;
 }
 
 /** What the public page needs to open the provider's reconnect flow. */

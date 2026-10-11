@@ -8,7 +8,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { user } from "./auth.sql";
 import { financialAccounts } from "./financial-accounts.sql";
-import { syncJobs } from "./sync-jobs.sql";
 
 /**
  * Public links that let someone reconnect one account without signing in.
@@ -26,12 +25,10 @@ export const reconnectLinks = pgTable(
       .references(() => financialAccounts.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull().unique(),
     expiresAt: timestamp("expires_at").notNull(),
-    // Set when the provider flow succeeds. A used link can't open another
-    // flow, but keeps reporting the sync it started until it expires.
-    usedAt: timestamp("used_at"),
-    syncJobId: integer("sync_job_id").references(() => syncJobs.id, {
-      onDelete: "set null",
-    }),
+    // Quiltt's connector needs a session token that can read the owner's
+    // whole Quiltt profile. A link hands out at most one, reused until the
+    // reconnect completes, when it's revoked.
+    quilttSessionToken: text("quiltt_session_token"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({

@@ -54,7 +54,7 @@ export interface ReconnectLink {
   url: string;
   expiresAt: string;
   accountId: number;
-  institutionName: string;
+  institutionName: string | null;
   provider: "plaid" | "quiltt";
 }
 

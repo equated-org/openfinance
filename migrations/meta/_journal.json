@@ -120,6 +120,20 @@
       "when": 1791753498707,
       "tag": "0016_reconnect-links",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791758510810,
+      "tag": "0017_reconnect-links-drop-usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791758517853,
+      "tag": "0018_reconnect-links-quiltt-session",
+      "breakpoints": true
     }
   ]
 }

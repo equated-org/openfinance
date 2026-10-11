@@ -265,7 +265,7 @@ class FinancialAccountService {
       .where(eq(financialAccounts.accountConnectionId, connectionId));
   }
 
-  private async getSyncingConnections(
+  async getSyncingConnections(
     connectionIds: number[],
   ): Promise<Set<number>> {
     if (connectionIds.length === 0) return new Set();
@@ -283,7 +283,7 @@ class FinancialAccountService {
     return new Set(pendingJobs.map((j) => j.accountConnectionId));
   }
 
-  private async getSyncErrors(
+  async getSyncErrors(
     connectionIds: number[],
   ): Promise<Map<number, SyncError>> {
     if (connectionIds.length === 0) return new Map();

@@ -1,0 +1,1 @@
+ALTER TABLE "reconnect_links" ADD COLUMN "quiltt_session_token" text;

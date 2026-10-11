@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, eq, isNull, lt } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import type {
   CreatedReconnectLink,
   ReconnectLinkState,
@@ -12,25 +12,27 @@ import {
   financialAccounts,
   institutionRegistry,
   reconnectLinks,
-  syncJobs,
   user as userTable,
   type AccountConnection,
   type ReconnectLink,
 } from "../schema";
+import { financialAccountService } from "./financial-account.service";
 import { plaidService } from "./sync/plaid.service";
 import { quilttService } from "./sync/quiltt.service";
-import { needsUserAction } from "./sync/disconnect-codes";
 
 export const RECONNECT_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+
+// A sign-in that starts just before the link expires can still finish, and
+// its sync can still be watched, for this long afterwards.
+const FINISH_GRACE_MS = 60 * 60 * 1000;
+
+// Expired links are kept this long so they answer "expired" rather than
+// "never existed".
+const EXPIRED_LINK_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Tokens are 32 random bytes in base64url. Anything else can't match a link,
 // so it's rejected before touching the database.
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
-// Shown when the reconnect worked but the sync after it hit a transient error
-// (a bank still sending data, a timeout). The scheduled poll retries it.
-const CATCHING_UP_MESSAGE =
-  "Your bank is still sending data. New transactions will show up on their own.";
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -62,11 +64,12 @@ function reconnectTarget(connection: AccountConnection): ReconnectTarget | null 
 /** A link with the account and connection it reconnects. */
 export interface ResolvedReconnectLink {
   link: ReconnectLink;
-  connection: AccountConnection;
+  connectionId: number;
+  institutionRegistryId: number | null;
   target: ReconnectTarget;
   accountName: string;
   accountMask: string | null;
-  institutionName: string;
+  institutionName: string | null;
   institutionUrl: string | null;
 }
 
@@ -104,13 +107,15 @@ class ReconnectLinkService {
     const target = reconnectTarget(row.connection);
     if (!target) return { ok: false, error: "unsupported_provider" };
 
-    // Expired links can never be used again, so don't keep their hashes around.
     await db
       .delete(reconnectLinks)
       .where(
         and(
           eq(reconnectLinks.userId, userId),
-          lt(reconnectLinks.expiresAt, new Date()),
+          lt(
+            reconnectLinks.expiresAt,
+            new Date(Date.now() - EXPIRED_LINK_RETENTION_MS),
+          ),
         ),
       );
 
@@ -129,18 +134,20 @@ class ReconnectLinkService {
     return {
       ok: true,
       link: {
-        url: `${appUrl}/reconnect/${token}`,
+        // The token goes in the fragment, which browsers never send to a
+        // server, so it stays out of request logs.
+        url: `${appUrl}/reconnect#${token}`,
         expiresAt: expiresAt.toISOString(),
         accountId,
-        institutionName: row.institutionName ?? "Unknown",
+        institutionName: row.institutionName,
         provider: target.provider,
       },
     };
   }
 
   /**
-   * Resolves the token from a link's URL. Expired links still resolve so the
-   * caller can tell "expired" apart from "never existed".
+   * Resolves a link's token. Expired links still resolve so the caller can
+   * tell "expired" apart from "never existed".
    */
   async findByToken(token: string): Promise<ResolvedReconnectLink | null> {
     if (!TOKEN_PATTERN.test(token)) return null;
@@ -175,45 +182,43 @@ class ReconnectLinkService {
     if (!target) return null;
 
     return {
-      ...row,
+      link: row.link,
+      connectionId: row.connection.id,
+      institutionRegistryId: row.connection.institutionRegistryId,
       target,
-      institutionName: row.institutionName ?? "Unknown",
-      institutionUrl: row.institutionUrl ?? null,
+      accountName: row.accountName,
+      accountMask: row.accountMask,
+      institutionName: row.institutionName,
+      institutionUrl: row.institutionUrl,
     };
   }
 
-  isExpired({ link }: ResolvedReconnectLink): boolean {
-    return link.expiresAt.getTime() <= Date.now();
+  /** Whether the link can still open a provider sign-in. */
+  canStart({ link }: ResolvedReconnectLink): boolean {
+    return Date.now() < link.expiresAt.getTime();
   }
 
+  /** Whether a sign-in that started in time can still finish and be watched. */
+  canFinish({ link }: ResolvedReconnectLink): boolean {
+    return Date.now() < link.expiresAt.getTime() + FINISH_GRACE_MS;
+  }
+
+  /**
+   * Reports the connection as GET /api/accounts does: a running sync first,
+   * then a sync error that needs the owner to sign in again.
+   */
   async getStatus(resolved: ResolvedReconnectLink): Promise<ReconnectLinkStatus> {
-    const { link } = resolved;
-    let state: ReconnectLinkState = "ready";
-    let message: string | null = null;
+    const { connectionId } = resolved;
+    const [syncing, syncErrors] = await Promise.all([
+      financialAccountService.getSyncingConnections([connectionId]),
+      financialAccountService.getSyncErrors([connectionId]),
+    ]);
 
-    if (link.usedAt) {
-      const [job] = link.syncJobId
-        ? await db
-            .select({
-              status: syncJobs.status,
-              errorMessage: syncJobs.errorMessage,
-              errorCode: syncJobs.errorCode,
-            })
-            .from(syncJobs)
-            .where(eq(syncJobs.id, link.syncJobId))
-            .limit(1)
-        : [];
-
-      if (!job || job.status === "pending") {
-        state = "syncing";
-      } else if (job.status === "error" && needsUserAction(job.errorCode)) {
-        state = "failed";
-        message = job.errorMessage;
-      } else {
-        state = "synced";
-        message = job.status === "error" ? CATCHING_UP_MESSAGE : null;
-      }
-    }
+    const state: ReconnectLinkState = syncing.has(connectionId)
+      ? "syncing"
+      : syncErrors.has(connectionId)
+        ? "ready"
+        : "synced";
 
     return {
       provider: resolved.target.provider,
@@ -221,34 +226,23 @@ class ReconnectLinkService {
       institutionUrl: resolved.institutionUrl,
       accountName: resolved.accountName,
       accountMask: resolved.accountMask,
-      expiresAt: link.expiresAt.toISOString(),
+      expiresAt: resolved.link.expiresAt.toISOString(),
       state,
-      message,
     };
   }
 
   /**
-   * Creates what the page needs to open the provider's reconnect flow. Allowed
-   * until a reconnect succeeds; a link whose sync then failed (the bank still
-   * wants a login) can be tried again.
+   * Creates what the page needs to open the provider's reconnect flow, as
+   * long as the connection still needs it.
    */
   async startSession(
     resolved: ResolvedReconnectLink,
   ): Promise<
-    { ok: true; session: ReconnectSession } | { ok: false; error: "already_used" }
+    { ok: true; session: ReconnectSession } | { ok: false; error: "not_needed" }
   > {
     const { link, target } = resolved;
     const { state } = await this.getStatus(resolved);
-
-    if (state === "syncing" || state === "synced") {
-      return { ok: false, error: "already_used" };
-    }
-    if (state === "failed") {
-      await db
-        .update(reconnectLinks)
-        .set({ usedAt: null, syncJobId: null })
-        .where(eq(reconnectLinks.id, link.id));
-    }
+    if (state !== "ready") return { ok: false, error: "not_needed" };
 
     if (target.provider === "plaid") {
       const linkToken = await plaidService.createUpdateLinkToken(
@@ -258,13 +252,23 @@ class ReconnectLinkService {
       return { ok: true, session: { provider: "plaid", linkToken } };
     }
 
-    const profileId = await this.getQuilttProfileId(link.userId);
-    const quilttSession = await quilttService.createSession(profileId);
+    // Reuse the link's session rather than minting one per attempt: Quiltt
+    // allows a profile 10 a day, and each one can read the whole profile.
+    let sessionToken = link.quilttSessionToken;
+    if (!sessionToken) {
+      const profileId = await this.getQuilttProfileId(link.userId);
+      sessionToken = (await quilttService.createSession(profileId)).token;
+      await db
+        .update(reconnectLinks)
+        .set({ quilttSessionToken: sessionToken })
+        .where(eq(reconnectLinks.id, link.id));
+    }
+
     return {
       ok: true,
       session: {
         provider: "quiltt",
-        sessionToken: quilttSession.token,
+        sessionToken,
         connectorId: process.env.QUILTT_CONNECTOR_ID ?? "",
         connectionId: target.connectionId,
       },
@@ -272,67 +276,85 @@ class ReconnectLinkService {
   }
 
   /**
-   * Called after the provider flow succeeds: marks the link used and re-syncs
-   * the connection through the same path as an in-app reconnect, which also
-   * clears the account's sync error. Repeat calls don't start another sync.
+   * Called after the provider flow succeeds. Re-syncs the connection through
+   * the same path as an in-app reconnect, which clears its sync error. Does
+   * nothing if a sync is already running or the connection is healthy.
    */
-  async complete(resolved: ResolvedReconnectLink): Promise<ReconnectLinkStatus> {
-    const { link } = resolved;
-
-    const [claimed] = await db
-      .update(reconnectLinks)
-      .set({ usedAt: new Date() })
-      .where(and(eq(reconnectLinks.id, link.id), isNull(reconnectLinks.usedAt)))
-      .returning();
-
-    if (!claimed) {
-      const [current] = await db
-        .select()
-        .from(reconnectLinks)
-        .where(eq(reconnectLinks.id, link.id))
-        .limit(1);
-      return this.getStatus({ ...resolved, link: current ?? link });
+  async complete(
+    resolved: ResolvedReconnectLink,
+    { quilttConnectionId }: { quilttConnectionId?: string } = {},
+  ): Promise<ReconnectLinkStatus> {
+    if ((await this.getStatus(resolved)).state === "ready") {
+      await this.startSync(resolved, quilttConnectionId);
     }
-
-    try {
-      const { syncJobId } = await this.startSync(link.userId, resolved);
-      const [updated] = await db
-        .update(reconnectLinks)
-        .set({ syncJobId })
-        .where(eq(reconnectLinks.id, link.id))
-        .returning();
-      return this.getStatus({ ...resolved, link: updated });
-    } catch (err) {
-      // Release the link so the reconnect can be finished on a retry.
-      await db
-        .update(reconnectLinks)
-        .set({ usedAt: null })
-        .where(eq(reconnectLinks.id, link.id));
-      throw err;
-    }
+    return this.getStatus(resolved);
   }
 
   private async startSync(
-    userId: string,
-    { connection, target }: ResolvedReconnectLink,
-  ): Promise<{ syncJobId: number }> {
+    { link, connectionId, institutionRegistryId, target }: ResolvedReconnectLink,
+    newQuilttConnectionId?: string,
+  ): Promise<void> {
     if (target.provider === "plaid") {
       // Update mode keeps the Item's access token, so there's nothing to
       // exchange: re-sync with the stored one.
-      return plaidService.connectAndPerformInitialSync({
-        userId,
-        institutionRegistryId: connection.institutionRegistryId,
+      await plaidService.connectAndPerformInitialSync({
+        userId: link.userId,
+        institutionRegistryId,
         plaidItemId: target.itemId,
         plaidAccessToken: target.accessToken,
       });
+      return;
     }
 
-    return quilttService.connectAndPerformInitialSync({
-      userId,
-      quilttConnectionId: target.connectionId,
-      quilttProfileId: await this.getQuilttProfileId(userId),
-      institutionRegistryId: connection.institutionRegistryId,
+    const profileId = await this.getQuilttProfileId(link.userId);
+    let quilttConnectionId = target.connectionId;
+
+    // Reconnecting a DISCONNECTED Quiltt connection creates a new one with a
+    // new ID. Point this connection at it so its accounts carry on.
+    if (newQuilttConnectionId && newQuilttConnectionId !== quilttConnectionId) {
+      const connection = await quilttService.getConnection(
+        profileId,
+        newQuilttConnectionId,
+      );
+      if (!connection) {
+        throw new Error(
+          `Quiltt connection ${newQuilttConnectionId} isn't in the owner's profile`,
+        );
+      }
+
+      const [taken] = await db
+        .select({ id: accountConnections.id })
+        .from(accountConnections)
+        .where(eq(accountConnections.quilttConnectionId, newQuilttConnectionId))
+        .limit(1);
+      if (!taken) {
+        await db
+          .update(accountConnections)
+          .set({ quilttConnectionId: newQuilttConnectionId, updatedAt: new Date() })
+          .where(eq(accountConnections.id, connectionId));
+      }
+      quilttConnectionId = newQuilttConnectionId;
+    }
+
+    await quilttService.connectAndPerformInitialSync({
+      userId: link.userId,
+      quilttConnectionId,
+      quilttProfileId: profileId,
+      institutionRegistryId,
     });
+
+    // The page is done with the session, so don't leave it valid for a day.
+    if (link.quilttSessionToken) {
+      try {
+        await quilttService.revokeSession(link.quilttSessionToken);
+      } catch (err) {
+        console.error("Failed to revoke a reconnect link's Quiltt session:", err);
+      }
+      await db
+        .update(reconnectLinks)
+        .set({ quilttSessionToken: null })
+        .where(eq(reconnectLinks.id, link.id));
+    }
   }
 
   private async getQuilttProfileId(userId: string): Promise<string> {

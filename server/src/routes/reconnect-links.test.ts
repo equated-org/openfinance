@@ -40,12 +40,14 @@ vi.mock("$lib/sync/plaid.service", () => ({
 
 vi.mock("$lib/sync/quiltt.service", () => ({
   quilttService: {
-    createSession: vi.fn().mockResolvedValue({
-      token: "quiltt-session-token",
+    createSession: vi.fn(async () => ({
+      token: `quiltt-session-${randomUUID()}`,
       userId: "unused",
       expiresAt: "2026-01-01T00:00:00Z",
-    }),
+    })),
     connectAndPerformInitialSync: vi.fn(),
+    getConnection: vi.fn(),
+    revokeSession: vi.fn(),
     disconnectConnection: vi.fn(),
   },
 }));
@@ -62,7 +64,7 @@ const { quilttService } = await import("$lib/sync/quiltt.service");
 
 const app = new Hono();
 app.route("/api/accounts", accountRoutes);
-app.route("/api/reconnect-links", reconnectLinkRoutes);
+app.route("/api/reconnect-link", reconnectLinkRoutes);
 
 let registryId: number;
 let plaidConnectionId: number;
@@ -72,11 +74,27 @@ let quilttAccountId: number;
 let mxAccountId: number;
 let otherUsersAccountId: number;
 
-// The real services insert a pending job and start the sync workflow.
-async function insertPendingJob(
+/** Puts a connection in a state the way sync jobs leave it. */
+async function setConnectionState(
   connectionId: number,
   provider: "plaid" | "quiltt",
+  state: "needs_login" | "syncing" | "healthy",
 ) {
+  await db.delete(syncJobs).where(eq(syncJobs.accountConnectionId, connectionId));
+  await db.insert(syncJobs).values({
+    userId: testUserId,
+    accountConnectionId: connectionId,
+    provider,
+    jobType: "transactions",
+    status:
+      state === "needs_login" ? "error" : state === "syncing" ? "pending" : "success",
+    errorCode: state === "needs_login" ? "ITEM_LOGIN_REQUIRED" : null,
+    errorMessage: state === "needs_login" ? "Login required" : null,
+  });
+}
+
+// What the real services do: insert a pending job and start the sync.
+async function insertPendingJob(connectionId: number, provider: "plaid" | "quiltt") {
   const [job] = await db
     .insert(syncJobs)
     .values({
@@ -95,17 +113,30 @@ async function createLink(accountId: number) {
     method: "POST",
   });
   const body = await res.json();
-  const token = /\/reconnect\/([A-Za-z0-9_-]+)$/.exec(body.url ?? "")?.[1];
+  const token = /#([A-Za-z0-9_-]+)$/.exec(body.url ?? "")?.[1];
   return { res, body, token: token! };
 }
 
-function getLink(token: string) {
-  return app.request(`/api/reconnect-links/${token}`);
+function auth(token: string) {
+  return { Authorization: `Bearer ${token}` };
 }
 
-function postLink(token: string, action: "session" | "complete") {
-  return app.request(`/api/reconnect-links/${token}/${action}`, {
+function getLink(token: string) {
+  return app.request("/api/reconnect-link", { headers: auth(token) });
+}
+
+function startSession(token: string) {
+  return app.request("/api/reconnect-link/session", {
     method: "POST",
+    headers: auth(token),
+  });
+}
+
+function complete(token: string, body: { connectionId?: string } = {}) {
+  return app.request("/api/reconnect-link/complete", {
+    method: "POST",
+    headers: { ...auth(token), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
@@ -116,6 +147,13 @@ async function linkRow(token: string) {
     .from(reconnectLinks)
     .where(eq(reconnectLinks.tokenHash, tokenHash));
   return row;
+}
+
+async function expireLink(token: string, msAgo: number) {
+  await db
+    .update(reconnectLinks)
+    .set({ expiresAt: new Date(Date.now() - msAgo) })
+    .where(eq(reconnectLinks.tokenHash, createHash("sha256").update(token).digest("hex")));
 }
 
 beforeAll(async () => {
@@ -219,11 +257,11 @@ afterAll(async () => {
 });
 
 describe("POST /api/accounts/:id/reconnect-link", () => {
-  it("creates a link that expires in 24 hours and stores only the token's hash", async () => {
+  it("creates a 24-hour link with the token in the fragment, storing only its hash", async () => {
     const { res, body, token } = await createLink(plaidAccountId);
 
     expect(res.status).toBe(201);
-    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(body.url).toMatch(/\/reconnect#[A-Za-z0-9_-]{43}$/);
     expect(body).toMatchObject({
       accountId: plaidAccountId,
       institutionName: "Reconnect Test Bank",
@@ -237,7 +275,6 @@ describe("POST /api/accounts/:id/reconnect-link", () => {
     expect(row).toMatchObject({
       userId: testUserId,
       financialAccountId: plaidAccountId,
-      usedAt: null,
     });
     expect(JSON.stringify(row)).not.toContain(token);
   });
@@ -251,10 +288,24 @@ describe("POST /api/accounts/:id/reconnect-link", () => {
     const { res } = await createLink(mxAccountId);
     expect(res.status).toBe(422);
   });
+
+  it("keeps expired links for a week so they still answer 'expired'", async () => {
+    await setConnectionState(plaidConnectionId, "plaid", "needs_login");
+    const { token: recent } = await createLink(plaidAccountId);
+    const { token: old } = await createLink(plaidAccountId);
+    await expireLink(recent, 2 * 60 * 60 * 1000);
+    await expireLink(old, 8 * 24 * 60 * 60 * 1000);
+
+    await createLink(quilttAccountId);
+
+    expect((await getLink(recent)).status).toBe(410);
+    expect((await getLink(old)).status).toBe(404);
+  });
 });
 
 describe("public reconnect link", () => {
-  it("describes the account without requiring a session", async () => {
+  it("describes the account without a session", async () => {
+    await setConnectionState(plaidConnectionId, "plaid", "needs_login");
     const { token } = await createLink(plaidAccountId);
 
     const res = await getLink(token);
@@ -267,33 +318,35 @@ describe("public reconnect link", () => {
       accountName: "Checking",
       accountMask: "1234",
       state: "ready",
-      message: null,
     });
   });
 
-  it("404s for unknown and malformed tokens", async () => {
-    expect((await getLink("A".repeat(43))).status).toBe(404);
+  it("404s without a valid token", async () => {
+    expect((await app.request("/api/reconnect-link")).status).toBe(404);
     expect((await getLink("not-a-token")).status).toBe(404);
-    expect((await postLink("not-a-token", "session")).status).toBe(404);
+    expect((await getLink("A".repeat(43))).status).toBe(404);
   });
 
-  it("410s once the link has expired", async () => {
+  it("follows the connection's state, as GET /api/accounts does", async () => {
     const { token } = await createLink(plaidAccountId);
-    await db
-      .update(reconnectLinks)
-      .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(eq(reconnectLinks.id, (await linkRow(token)).id));
 
-    expect((await getLink(token)).status).toBe(410);
-    expect((await postLink(token, "session")).status).toBe(410);
-    expect((await postLink(token, "complete")).status).toBe(410);
+    await setConnectionState(plaidConnectionId, "plaid", "syncing");
+    expect((await (await getLink(token)).json()).state).toBe("syncing");
+
+    await setConnectionState(plaidConnectionId, "plaid", "healthy");
+    expect((await (await getLink(token)).json()).state).toBe("synced");
+
+    // Nothing to reconnect, so no sign-in
+    const res = await startSession(token);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "not_needed" });
   });
 
-  it("reconnects a Plaid account, then reports the sync's progress", async () => {
+  it("reconnects a Plaid account and starts one re-sync", async () => {
+    await setConnectionState(plaidConnectionId, "plaid", "needs_login");
     const { token } = await createLink(plaidAccountId);
 
-    const sessionRes = await postLink(token, "session");
-    expect(sessionRes.status).toBe(200);
+    const sessionRes = await startSession(token);
     expect(await sessionRes.json()).toEqual({
       provider: "plaid",
       linkToken: "link-sandbox-update",
@@ -304,8 +357,7 @@ describe("public reconnect link", () => {
     );
 
     vi.mocked(plaidService.connectAndPerformInitialSync).mockClear();
-    const completeRes = await postLink(token, "complete");
-    expect(completeRes.status).toBe(200);
+    const completeRes = await complete(token);
     expect((await completeRes.json()).state).toBe("syncing");
     expect(plaidService.connectAndPerformInitialSync).toHaveBeenCalledWith({
       userId: testUserId,
@@ -315,94 +367,58 @@ describe("public reconnect link", () => {
     });
 
     // A repeated completion doesn't start a second sync
-    const repeatRes = await postLink(token, "complete");
-    expect((await repeatRes.json()).state).toBe("syncing");
+    expect((await (await complete(token)).json()).state).toBe("syncing");
     expect(plaidService.connectAndPerformInitialSync).toHaveBeenCalledTimes(1);
-
-    // Nor can the link open the provider flow again
-    const reopenRes = await postLink(token, "session");
-    expect(reopenRes.status).toBe(409);
-    expect(await reopenRes.json()).toEqual({ error: "already_used" });
-
-    const { syncJobId } = await linkRow(token);
-    await db
-      .update(syncJobs)
-      .set({ status: "success", completedAt: new Date() })
-      .where(eq(syncJobs.id, syncJobId!));
-
-    expect(await (await getLink(token)).json()).toMatchObject({
-      state: "synced",
-      message: null,
-    });
   });
 
-  it("counts a sync that's still waiting on the bank as reconnected", async () => {
+  it("lets a sign-in that started in time finish for an hour after expiry", async () => {
+    await setConnectionState(plaidConnectionId, "plaid", "needs_login");
     const { token } = await createLink(plaidAccountId);
-    await postLink(token, "complete");
+    await expireLink(token, 10 * 60 * 1000);
 
-    const { syncJobId } = await linkRow(token);
-    await db
-      .update(syncJobs)
-      .set({
-        status: "error",
-        errorCode: "UPSTREAM_NOT_READY",
-        errorMessage: "Your bank is still sending data.",
-      })
-      .where(eq(syncJobs.id, syncJobId!));
+    // Can't start a sign-in or offer one...
+    expect((await startSession(token)).status).toBe(410);
+    expect((await getLink(token)).status).toBe(410);
 
-    const body = await (await getLink(token)).json();
-    expect(body.state).toBe("synced");
-    expect(body.message).toEqual(expect.any(String));
+    // ...but can finish one and keep reporting its sync
+    expect((await complete(token)).status).toBe(200);
+    expect((await (await getLink(token)).json()).state).toBe("syncing");
+
+    await expireLink(token, 2 * 60 * 60 * 1000);
+    expect((await getLink(token)).status).toBe(410);
+    expect((await complete(token)).status).toBe(410);
   });
 
-  it("lets the link retry when the bank still needs a login", async () => {
-    const { token } = await createLink(plaidAccountId);
-    await postLink(token, "complete");
-
-    const { syncJobId } = await linkRow(token);
-    await db
-      .update(syncJobs)
-      .set({
-        status: "error",
-        errorCode: "ITEM_LOGIN_REQUIRED",
-        errorMessage: "Your bank connection needs to be reauthorized.",
-      })
-      .where(eq(syncJobs.id, syncJobId!));
-
-    expect(await (await getLink(token)).json()).toMatchObject({
-      state: "failed",
-      message: "Your bank connection needs to be reauthorized.",
-    });
-
-    expect((await postLink(token, "session")).status).toBe(200);
-    expect((await (await getLink(token)).json()).state).toBe("ready");
-  });
-
-  it("keeps the link usable when the re-sync can't start", async () => {
+  it("stays usable when the re-sync can't start", async () => {
+    await setConnectionState(plaidConnectionId, "plaid", "needs_login");
     const { token } = await createLink(plaidAccountId);
     vi.mocked(plaidService.connectAndPerformInitialSync).mockRejectedValueOnce(
       new Error("Plaid is down"),
     );
 
-    expect((await postLink(token, "complete")).status).toBe(500);
-    expect((await linkRow(token)).usedAt).toBeNull();
-    expect((await postLink(token, "session")).status).toBe(200);
+    expect((await complete(token)).status).toBe(500);
+    expect((await (await getLink(token)).json()).state).toBe("ready");
+    expect((await startSession(token)).status).toBe(200);
   });
 
-  it("reconnects a Quiltt account through Quiltt's reconnect flow", async () => {
+  it("reuses one Quiltt session per link and revokes it once reconnected", async () => {
+    await setConnectionState(quilttConnectionDbId, "quiltt", "needs_login");
     const { body, token } = await createLink(quilttAccountId);
     expect(body.provider).toBe("quiltt");
+    vi.mocked(quilttService.createSession).mockClear();
 
-    const sessionRes = await postLink(token, "session");
-    expect(await sessionRes.json()).toEqual({
+    const first = await (await startSession(token)).json();
+    const second = await (await startSession(token)).json();
+    expect(first).toMatchObject({
       provider: "quiltt",
-      sessionToken: "quiltt-session-token",
       connectorId: process.env.QUILTT_CONNECTOR_ID ?? "",
       connectionId: quilttConnectionId,
     });
+    expect(second.sessionToken).toBe(first.sessionToken);
+    expect(quilttService.createSession).toHaveBeenCalledTimes(1);
     expect(quilttService.createSession).toHaveBeenCalledWith(quilttProfileId);
 
-    const completeRes = await postLink(token, "complete");
+    const completeRes = await complete(token, { connectionId: quilttConnectionId });
     expect((await completeRes.json()).state).toBe("syncing");
     expect(quilttService.connectAndPerformInitialSync).toHaveBeenCalledWith({
       userId: testUserId,
@@ -410,5 +426,34 @@ describe("public reconnect link", () => {
       quilttProfileId,
       institutionRegistryId: registryId,
     });
+    expect(quilttService.revokeSession).toHaveBeenCalledWith(first.sessionToken);
+    expect((await linkRow(token)).quilttSessionToken).toBeNull();
+  });
+
+  it("follows Quiltt to the new connection a reconnect can create", async () => {
+    await setConnectionState(quilttConnectionDbId, "quiltt", "needs_login");
+    const { token } = await createLink(quilttAccountId);
+    const newConnectionId = `conn_${randomUUID().slice(0, 8)}`;
+
+    // Not in the owner's profile: refused
+    vi.mocked(quilttService.getConnection).mockResolvedValueOnce(null as any);
+    expect((await complete(token, { connectionId: newConnectionId })).status).toBe(500);
+
+    vi.mocked(quilttService.getConnection).mockResolvedValueOnce({} as any);
+    vi.mocked(quilttService.connectAndPerformInitialSync).mockClear();
+    expect((await complete(token, { connectionId: newConnectionId })).status).toBe(200);
+
+    expect(quilttService.getConnection).toHaveBeenCalledWith(
+      quilttProfileId,
+      newConnectionId,
+    );
+    expect(quilttService.connectAndPerformInitialSync).toHaveBeenCalledWith(
+      expect.objectContaining({ quilttConnectionId: newConnectionId }),
+    );
+    const [conn] = await db
+      .select({ quilttConnectionId: accountConnections.quilttConnectionId })
+      .from(accountConnections)
+      .where(eq(accountConnections.id, quilttConnectionDbId));
+    expect(conn.quilttConnectionId).toBe(newConnectionId);
   });
 });

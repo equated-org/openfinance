@@ -303,6 +303,25 @@ class QuilttService {
     return { ...data, connectorId } as any;
   }
 
+  /** Ends a session token before its 24 hours are up. */
+  async revokeSession(token: string): Promise<void> {
+    const response = await proxyFetch(
+      "https://auth.quiltt.io/v1/users/session",
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+
+    // 401 means the token is already expired or revoked.
+    if (!response.ok && response.status !== 401) {
+      const text = await response.text();
+      throw new Error(
+        `Quiltt session revocation failed: ${response.status} - ${text}`,
+      );
+    }
+  }
+
   async getConnection(
     profileId: string,
     connectionId: string,

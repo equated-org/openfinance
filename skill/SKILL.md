@@ -184,7 +184,7 @@ curl -s -X POST "$BASE_URL/api/accounts/ACCOUNT_ID/reconnect-link" \
 Response (`201`):
 ```json
 {
-  "url": "https://app.openfinance.sh/reconnect/<token>",
+  "url": "https://app.openfinance.sh/reconnect#<token>",
   "expiresAt": "2026-01-02T15:04:05.000Z",
   "accountId": 123,
   "institutionName": "Chase",
@@ -192,7 +192,8 @@ Response (`201`):
 }
 ```
 
-- Links expire after **24 hours**. Once the account is reconnected, the link only shows the sync's progress. If the bank still wants a sign-in afterwards, the same link can try again.
+- Links expire after **24 hours**. Until then the link follows the account: it offers a sign-in only while the bank needs one, and otherwise shows that the account is connected. The same link can be used again if the bank later asks for another sign-in.
+- The re-sync runs in the background, so the owner can close the page as soon as they've signed in.
 - To check it worked, poll `GET /api/accounts`: the account's `syncError` turns `null` as soon as the owner reconnects, and `isSyncing` stays `true` until the re-sync finishes, which can take a few minutes.
 - Reconnecting repairs the account's whole bank connection, so it also fixes the other accounts linked through the same sign-in.
 - `404`: no account with that ID. `422`: the account's provider (MX) isn't supported.

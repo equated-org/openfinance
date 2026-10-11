@@ -49,7 +49,7 @@ app.route("/api/tasks", taskRoutes);
 app.route("/api/billing", billingRoutes);
 app.route("/api/stripe", stripeWebhookRoutes);
 app.route("/api/notifications", notificationRoutes);
-app.route("/api/reconnect-links", reconnectLinkRoutes);
+app.route("/api/reconnect-link", reconnectLinkRoutes);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 
