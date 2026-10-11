@@ -6,7 +6,7 @@ import { OpenFinanceClient } from "./client.js";
 import { registerAccountTools } from "./tools/accounts.js";
 import { registerTransactionTools } from "./tools/transactions.js";
 
-const VERSION = "0.1.5";
+const VERSION = "0.1.9";
 
 function parseArgs() {
   const args = process.argv.slice(2);

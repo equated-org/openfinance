@@ -1,7 +1,7 @@
 ---
 name: openfinance
 slug: openfinance
-version: 0.0.3
+version: 0.0.4
 description: Connect bank accounts to AI models using openfinance.sh
 tags:
   - finance
@@ -57,6 +57,8 @@ Response shape per account:
 - `institutionName`, `institutionUrl`
 - `status` — "active" or "hidden"
 - `isSyncing` (boolean), `syncError` (object or null)
+
+A non-null `syncError` means the bank connection needs the owner to sign in again. Use [Create Reconnect Link](#4-create-reconnect-link) to fix it.
 
 ---
 
@@ -156,6 +158,33 @@ Error: `{ "error": "error message" }` — fix the SQL and retry.
 
 ---
 
+## 4. Create Reconnect Link
+
+Create a public link that reconnects a disconnected account without signing in to OpenFinance. Give the URL to the account's owner. Opening it walks them through their bank's sign-in (Plaid or Quiltt), then shows the account re-syncing.
+
+```bash
+curl -s -X POST "$BASE_URL/api/accounts/ACCOUNT_ID/reconnect-link" \
+  -H "$AUTH_HEADER" \
+  | cat
+```
+
+Response (`201`):
+```json
+{
+  "url": "https://app.openfinance.sh/reconnect/<token>",
+  "expiresAt": "2026-01-02T15:04:05.000Z",
+  "accountId": 123,
+  "institutionName": "Chase",
+  "provider": "plaid"
+}
+```
+
+- Links expire after **24 hours**. Once the account is reconnected, the link only shows the sync's progress. If the bank still wants a sign-in afterwards, the same link can try again.
+- Reconnecting repairs the account's whole bank connection, so it also fixes the other accounts linked through the same sign-in.
+- `404`: no account with that ID. `422`: the account's provider (MX) isn't supported.
+
+---
+
 ## Tips
 
 - **Use SQL for aggregations** — monthly totals, top merchants, category breakdowns. It's faster and returns less data than fetching all transactions.
@@ -163,3 +192,4 @@ Error: `{ "error": "error message" }` — fix the SQL and retry.
 - **Pagination**: if there are more results, the response includes a cursor. Pass it as `cursor` in the next request.
 - **Amount values** are positive for debits (money spent) and negative for credits (money received).
 - When constructing SQL, always reference the `txns` CTE directly — do not define your own CTE or use transaction control statements.
+- **Disconnected accounts**: if an account has a `syncError`, create a reconnect link and send it to the owner rather than asking them to open the app.

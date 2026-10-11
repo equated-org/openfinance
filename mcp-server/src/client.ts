@@ -3,6 +3,7 @@ import type {
   GetTransactionsResponse,
   QueryTransactionsResponse,
   QueryTransactionsErrorResponse,
+  ReconnectLink,
   TransactionFilter,
 } from "./types.js";
 
@@ -89,5 +90,25 @@ export class OpenFinanceClient {
     return res.json() as Promise<
       QueryTransactionsResponse | QueryTransactionsErrorResponse
     >;
+  }
+
+  async createReconnectLink(accountId: number): Promise<ReconnectLink> {
+    const res = await fetch(
+      `${this.baseUrl}/api/accounts/${accountId}/reconnect-link`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`API error ${res.status}: ${body}`);
+    }
+
+    return res.json() as Promise<ReconnectLink>;
   }
 }
