@@ -66,7 +66,7 @@
   }
 </script>
 
-<div class="max-w-4xl mx-auto px-8 pt-2 space-y-8">
+<div class="max-w-4xl mx-auto md:px-8 pt-2 space-y-8">
   {#if $accountsState}
     {#if !onboarding.dismissed}
       <GettingStarted

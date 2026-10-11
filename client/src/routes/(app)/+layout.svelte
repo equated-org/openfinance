@@ -19,10 +19,16 @@
   import { loadAccountsState, refreshAccountsState } from "$lib/accounts/state";
   import { unreadCount, loadUnreadCount } from "$lib/notifications/state";
   import Bell from "lucide-svelte/icons/bell";
+  import Menu from "lucide-svelte/icons/menu";
   import { page } from "$app/state";
   import { replaceState } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import { Badge } from "$lib/components/ui/badge";
+  import {
+    Dialog,
+    DialogContent,
+    DialogTitle,
+  } from "$lib/components/ui/dialog";
   import type {
     ConnectedAccount,
     InstitutionType,
@@ -35,6 +41,8 @@
   const session = authClient.useSession();
 
   let searchOpen = $state(false);
+  // Below md the sidebar collapses into a drawer opened from the header.
+  let navOpen = $state(false);
   let plaidLink: PlaidLink;
   let mxLink: MXLink;
   let quilttLink: QuilttLink;
@@ -200,19 +208,43 @@
     onProviderSelect={handleProviderSelect}
   />
 
-  <div class="h-screen overflow-y-auto bg-[var(--bg)]">
+  {#snippet brand()}
+    <span class="text-base font-semibold tracking-tight text-[var(--text)]"
+      >OpenFinance</span
+    >{#if $billingState && $billingState.planType !== "free"}<Badge
+        variant="pill"
+        class="ml-1.5">{$billingState.planType}</Badge
+      >{/if}
+  {/snippet}
+
+  <Dialog bind:open={navOpen}>
+    <DialogContent
+      class="left-0 top-0 h-dvh w-64 max-w-[80vw] translate-x-0 translate-y-0 content-start gap-2 rounded-none border-0 border-r p-4 sm:max-w-[80vw]"
+      overlayClass="bg-black/20 backdrop-blur-sm"
+    >
+      <DialogTitle class="inline-flex h-9 items-center px-4">
+        {@render brand()}
+      </DialogTitle>
+      <Sidebar onNavigate={() => (navOpen = false)} />
+    </DialogContent>
+  </Dialog>
+
+  <div class="h-dvh overflow-y-auto bg-[var(--bg)]">
     <div class="sticky top-0 z-10 bg-[var(--bg-translucent)] backdrop-blur">
-      <div class="max-w-6xl mx-auto px-8">
-        <header class="flex items-center py-6">
-          <div
-            class="w-48 shrink-0 text-center inline-flex items-center justify-center"
+      <div class="max-w-6xl mx-auto px-4 md:px-8">
+        <header class="flex items-center py-3 md:py-6">
+          <button
+            type="button"
+            class="md:hidden -ml-1.5 mr-1.5 p-1.5 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            aria-label="Open navigation"
+            onclick={() => (navOpen = true)}
           >
-            <span class="text-base font-semibold tracking-tight text-[var(--text)]"
-              >OpenFinance</span
-            >{#if $billingState && $billingState.planType !== "free"}<Badge
-                variant="pill"
-                class="ml-1.5">{$billingState.planType}</Badge
-              >{/if}
+            <Menu class="h-5 w-5" />
+          </button>
+          <div
+            class="md:w-48 shrink-0 text-center inline-flex items-center justify-center"
+          >
+            {@render brand()}
           </div>
           <div class="flex-1 flex items-center justify-end gap-3">
             <a
@@ -234,12 +266,13 @@
         </header>
       </div>
     </div>
-    <div class="max-w-6xl mx-auto px-8">
+    <div class="max-w-6xl mx-auto px-4 md:px-8">
       <div class="flex gap-12">
-        <div class="w-48 shrink-0 self-start sticky top-[84px]">
+        <div class="hidden md:block w-48 shrink-0 self-start sticky top-[84px]">
           <Sidebar />
         </div>
-        <main class="flex-1 min-w-0">
+        <!-- Bottom padding keeps the last rows clear of mobile browser toolbars. -->
+        <main class="flex-1 min-w-0 pb-16 md:pb-0">
           {@render children()}
         </main>
       </div>

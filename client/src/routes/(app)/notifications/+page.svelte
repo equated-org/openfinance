@@ -122,7 +122,7 @@
   }
 </script>
 
-<div class="max-w-4xl mx-auto px-8 pt-2">
+<div class="max-w-4xl mx-auto md:px-8 pt-2">
   <h2 class="text-base font-semibold text-[var(--text)] mb-6">Notifications</h2>
 
   {#if loading}

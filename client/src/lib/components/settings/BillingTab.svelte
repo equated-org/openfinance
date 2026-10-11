@@ -91,7 +91,7 @@
 
 <div class="space-y-6">
   <!-- Current plan summary -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-medium text-[var(--text)]">Current Plan</h3>
@@ -131,11 +131,11 @@
             >Plan</th
           >
           <th
-            class="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]"
+            class="hidden sm:table-cell text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]"
             >Price</th
           >
           <th
-            class="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]"
+            class="hidden sm:table-cell text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]"
             >Accounts</th
           >
           <th class="px-4 py-2.5"></th>
@@ -153,11 +153,15 @@
               {#if isCurrent}
                 <Badge variant="pill" class="ml-2">Current</Badge>
               {/if}
+              <!-- Narrow screens fold the Price and Accounts columns in here. -->
+              <p class="sm:hidden mt-0.5 text-xs text-[var(--text-muted)]">
+                {plan.price}{plan.period} · {plan.accountLimit}
+              </p>
             </td>
-            <td class="px-4 py-3 text-[var(--text)]">
+            <td class="hidden sm:table-cell px-4 py-3 text-[var(--text)]">
               {plan.price}{plan.period}
             </td>
-            <td class="px-4 py-3 text-[var(--text-muted)]">
+            <td class="hidden sm:table-cell px-4 py-3 text-[var(--text-muted)]">
               {plan.accountLimit}
             </td>
             <td class="px-4 py-3 text-right">

@@ -210,7 +210,7 @@
   }
 </script>
 
-<div class="max-w-4xl mx-auto px-8 pt-8">
+<div class="max-w-4xl mx-auto md:px-8 pt-8">
   <section class="p-2">
     <div class="mb-4">
       <h2 class="text-base font-semibold text-[var(--text)]">
@@ -222,7 +222,9 @@
     </div>
 
     <Tabs.Root value="claude">
-      <Tabs.List class="flex gap-1 border-b border-[var(--border)] mb-4">
+      <Tabs.List
+        class="flex max-w-full justify-start gap-1 overflow-x-auto [scrollbar-width:none] border-b border-[var(--border)] mb-4"
+      >
         <Tabs.Trigger
           value="claude"
           class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-[var(--text-muted)] border-b-2 border-transparent data-[state=active]:text-[var(--text)] data-[state=active]:border-[var(--text)] transition-colors cursor-pointer"

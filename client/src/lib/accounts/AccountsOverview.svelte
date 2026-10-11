@@ -46,8 +46,12 @@
 </script>
 
 <section>
-  <div class="flex items-center justify-between gap-6 mb-4">
-    <div class="flex flex-wrap gap-x-12 gap-y-4">
+  <!-- On the narrowest phones "add account" wraps under the totals rather than
+       pushing the page sideways. -->
+  <div
+    class="flex flex-wrap items-start md:items-center justify-between gap-4 md:gap-6 mb-4"
+  >
+    <div class="flex min-w-0 flex-1 basis-48 flex-wrap gap-x-12 gap-y-4">
       {#each buckets as bucket (bucket.key)}
         <div>
           <p class="text-xs text-[var(--text-muted)]">{bucket.label}</p>

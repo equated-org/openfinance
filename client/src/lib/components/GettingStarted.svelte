@@ -35,15 +35,15 @@
   </div>
   <div class="space-y-1">
     <div
-      class="flex items-center justify-between rounded-lg p-4 hover:bg-[var(--bg-muted)] transition-colors"
+      class="flex items-center justify-between gap-3 rounded-lg p-4 hover:bg-[var(--bg-muted)] transition-colors"
     >
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 min-w-0">
         {#if accountConnected}
           <CircleCheck class="h-4 w-4 text-green-500 shrink-0" />
         {:else}
           <Circle class="h-4 w-4 text-[var(--text-muted)] shrink-0" />
         {/if}
-        <div>
+        <div class="min-w-0">
           <p
             class="text-sm font-medium text-[var(--text)]"
             class:line-through={accountConnected}
@@ -57,22 +57,25 @@
         </div>
       </div>
       {#if !accountConnected}
-        <Button variant="outline" size="sm" onclick={onConnectAccount}
-          >Connect</Button
+        <Button
+          variant="outline"
+          size="sm"
+          class="shrink-0"
+          onclick={onConnectAccount}>Connect</Button
         >
       {/if}
     </div>
 
     <div
-      class="flex items-center justify-between rounded-lg p-4 hover:bg-[var(--bg-muted)] transition-colors"
+      class="flex items-center justify-between gap-3 rounded-lg p-4 hover:bg-[var(--bg-muted)] transition-colors"
     >
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3 min-w-0">
         {#if mcpLinked}
           <CircleCheck class="h-4 w-4 text-green-500 shrink-0" />
         {:else}
           <Circle class="h-4 w-4 text-[var(--text-muted)] shrink-0" />
         {/if}
-        <div>
+        <div class="min-w-0">
           <p
             class="text-sm font-medium text-[var(--text)]"
             class:line-through={mcpLinked}
@@ -86,7 +89,12 @@
         </div>
       </div>
       {#if !mcpLinked}
-        <Button variant="outline" size="sm" onclick={() => goto("/connect")}>
+        <Button
+          variant="outline"
+          size="sm"
+          class="shrink-0"
+          onclick={() => goto("/connect")}
+        >
           Set up
         </Button>
       {/if}
