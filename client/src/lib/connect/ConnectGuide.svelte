@@ -57,16 +57,16 @@
 
   const MCP_PACKAGE_NAME = "@openfinance-sh/mcp";
   const DEFAULT_OPENFINANCE_URL = "https://api.openfinance.sh";
-  // The docs site publishes the skill, so agents fetch it instead of the user
-  // pasting it in.
-  const skillPrompt =
-    "Read https://openfinance.sh/docs/skill.md and save it as a skill.";
 
   let copiedId = $state<string | null>(null);
 
   const mcpUrl = $derived(`${serverUrl}/mcp`);
   const agentPrompt = $derived(
     `Read ${serverUrl}/setup.md and follow it to connect OpenFinance.`,
+  );
+  // Agents fetch the skill themselves instead of the user pasting it in.
+  const skillPrompt = $derived(
+    `Read ${serverUrl}/skill.md and save it as a skill.`,
   );
 
   const maskedKey = $derived(

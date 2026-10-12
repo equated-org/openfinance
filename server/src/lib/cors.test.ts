@@ -21,6 +21,7 @@ describe("CORS", () => {
   it.each([
     "/mcp",
     "/setup.md",
+    "/skill.md",
     "/.well-known/oauth-protected-resource",
     "/api/auth/mcp/token",
   ])("lets any origin call %s without credentials", async (path) => {

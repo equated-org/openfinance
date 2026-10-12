@@ -5,7 +5,7 @@ import { appUrl } from "./origins.js";
 // MCP clients and their OAuth sign-in can call from any origin. They use
 // bearer tokens or PKCE, never the session cookie, so these paths answer every
 // origin without credentials. Everything else is for the web app only.
-const PUBLIC_PATHS = new Set(["/mcp", "/setup.md"]);
+const PUBLIC_PATHS = new Set(["/mcp", "/setup.md", "/skill.md"]);
 const PUBLIC_PATH_PREFIXES = ["/.well-known/oauth-", "/api/auth/mcp/"];
 
 function isPublicProtocolPath(path: string): boolean {

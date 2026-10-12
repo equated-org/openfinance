@@ -42,6 +42,7 @@ app.route("/api/transactions", transactionRoutes);
 app.route("/api/keys", keyRoutes);
 app.route("/api/me", meRoutes);
 app.route("/api/mcp-bundle", mcpBundleRoutes);
+// The skill moved to /skill.md; this path stays for older links.
 app.route("/api/skill", skillRoutes);
 app.route("/api/tasks", taskRoutes);
 app.route("/api/billing", billingRoutes);
@@ -50,11 +51,13 @@ app.route("/api/notifications", notificationRoutes);
 app.route("/api/reconnect-link", reconnectLinkRoutes);
 app.route("/api/oauth", oauthRoutes);
 
-// Hosted MCP server, the OAuth discovery documents its clients read, and the
-// guide agents follow to connect themselves.
+// Hosted MCP server, the OAuth discovery documents its clients read, the
+// guide agents follow to connect themselves, and the skill for agents without
+// MCP.
 app.route("/mcp", mcpRoutes);
 app.route("/.well-known", oauthMetadataRoutes);
 app.route("/setup.md", setupRoutes);
+app.route("/skill.md", skillRoutes);
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 

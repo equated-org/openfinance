@@ -92,7 +92,7 @@ Pass the server as a remote MCP tool and authenticate with the API key:
 
 ## Agents without MCP
 
-Use the REST API with the API key. The skill at {{serverUrl}}/api/skill
+Use the REST API with the API key. The skill at {{serverUrl}}/skill.md
 documents every endpoint.
 
 ## Verify

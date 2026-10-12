@@ -17,6 +17,7 @@ describe("GET /setup.md", () => {
       "claude mcp add --scope user --transport http openfinance http://localhost:3000/mcp",
     );
     expect(guide).not.toContain("{{");
+    expect(guide).toContain("http://localhost:3000/skill.md");
     expect(guide).toContain(
       `openclaw mcp set openfinance '{"url":"http://localhost:3000/mcp","transport":"streamable-http","auth":"oauth"}'`,
     );
