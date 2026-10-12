@@ -15,7 +15,7 @@ const authRoutes = new Hono();
  * of the request in the `oidc_login_prompt` cookie, so it survives the replay
  * after sign-in.
  */
-export function withForcedMcpConsent(req: Request): Request {
+function withForcedMcpConsent(req: Request): Request {
   if (req.method !== "GET") return req;
   const url = new URL(req.url);
   if (!url.pathname.endsWith("/mcp/authorize")) return req;

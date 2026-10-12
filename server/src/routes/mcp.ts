@@ -12,7 +12,7 @@ mcpRoutes.get("/", (c) => c.body(null, 405, { Allow: "POST" }));
 // Each request gets its own server for the signed-in user, and answers come
 // back as plain JSON rather than an event stream.
 mcpRoutes.all("/", requireMcpAuth, async (c) => {
-  const server = createMcpServer(c.get("user"));
+  const server = createMcpServer(c.get("user").id);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

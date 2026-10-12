@@ -4,6 +4,7 @@
   import { page } from "$app/stores";
   import { ModeWatcher } from "mode-watcher";
   import { authClient } from "$lib/auth-client";
+  import { isConnectorSignIn } from "$lib/oauth/connector";
   import Toaster from "$lib/components/ui/sonner/sonner.svelte";
 
   let { children } = $props();
@@ -21,13 +22,11 @@
     if ($session.isPending || isPublicPage) return;
 
     const isLoginPage = $page.url.pathname.startsWith("/login");
-    // The login page finishes a connector's sign-in itself.
-    const isConnectorLogin =
-      isLoginPage && $page.url.searchParams.has("client_id");
 
     if (!$session.data && !isLoginPage) {
       goto("/login");
-    } else if ($session.data && isLoginPage && !isConnectorLogin) {
+    } else if ($session.data && isLoginPage && !isConnectorSignIn($page.url)) {
+      // The login page finishes a connector's sign-in itself.
       goto("/");
     }
   });

@@ -39,8 +39,9 @@ signed-in user's behalf. OAuth tokens only work at `/mcp`, not on the REST API.
 ## Connecting clients
 
 The app's Connect tab has per-client steps. Agents that can set themselves up
-(Claude Code, Codex, Cursor, OpenClaw) can follow `/setup.md`, which the
-Connect tab offers as a one-line prompt:
+(Claude Code, Codex, Cursor, OpenClaw) can follow `/setup.md`
+(`server/src/mcp/setup.md`), which the Connect tab offers as a one-line
+prompt:
 
 ```text
 Read https://api.openfinance.sh/setup.md and follow it to connect OpenFinance.
@@ -79,14 +80,14 @@ the sign-in.
 
 `mcp-server/` is the original stdio server, published to npm as
 [`@openfinance-sh/mcp`](https://www.npmjs.com/package/@openfinance-sh/mcp) and
-packed into `openfinance.mcpb` for Claude Desktop. It calls the REST API with
-an API key. Existing setups keep working, and the Connect tab still offers it
-under "Local server". It's also listed in the
+packed into `openfinance.mcpb` for Claude Desktop. Since 0.2.0 it's a bridge:
+it forwards MCP messages from stdio to `/mcp` with the API key, so it serves
+the hosted tools and never needs a release when they change. Configs that use
+it keep the same `OPENFINANCE_API_KEY` and `OPENFINANCE_URL`, and the Connect
+tab still offers it under "Legacy". It's also listed in the
 [MCP registry](https://registry.modelcontextprotocol.io), which points clients
-at the npm package.
-
-If you change a tool, change it in both `server/src/mcp/server.ts` and
-`mcp-server/src/tools/`.
+at the npm package. Versions before 0.2.0 called the REST API directly and
+still work.
 
 ### Publishing the package
 

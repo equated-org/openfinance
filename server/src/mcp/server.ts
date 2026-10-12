@@ -2,15 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ApiTransaction } from "@openfinance/shared";
-import type { AuthUser } from "../lib/middleware.js";
 import { financialAccountService } from "../lib/financial-account.service.js";
 import { reconnectLinkService } from "../lib/reconnect-link.service.js";
 import { transactionService } from "../lib/transaction.service.js";
 import { MAX_QUERY_LENGTH } from "../lib/transaction-query.js";
 
-// The tools match the legacy stdio package (mcp-server/), which calls the REST
-// API, so names, parameters, and output stay the same for both.
-export function createMcpServer(user: AuthUser) {
+// The only implementation of the tools. The npm package (mcp-server/) forwards
+// stdio clients here rather than defining its own.
+export function createMcpServer(userId: string) {
   const server = new McpServer({ name: "openfinance", version: "1.0.0" });
 
   server.registerTool(
@@ -23,7 +22,7 @@ export function createMcpServer(user: AuthUser) {
     },
     () =>
       run("get_accounts", async () =>
-        json(await financialAccountService.getAccountsByUserId(user.id)),
+        json(await financialAccountService.getAccountsByUserId(userId)),
       ),
   );
 
@@ -48,7 +47,7 @@ export function createMcpServer(user: AuthUser) {
     },
     ({ accountId }) =>
       run("create_reconnect_link", async () => {
-        const result = await reconnectLinkService.create(user.id, accountId);
+        const result = await reconnectLinkService.create(userId, accountId);
         if (!result.ok) {
           return error(
             result.error === "not_found"
@@ -122,7 +121,7 @@ export function createMcpServer(user: AuthUser) {
     (params) =>
       run("get_transactions", async () => {
         let transactions = await transactionService.getTransactionsByUserId(
-          user.id,
+          userId,
           {
             startDate: params.startDate,
             endDate: params.endDate,
@@ -186,7 +185,7 @@ Examples:
     },
     ({ sql }) =>
       run("query_transactions", async () => {
-        const result = await transactionService.queryTransactions(user.id, sql);
+        const result = await transactionService.queryTransactions(userId, sql);
         if ("error" in result) return error(`SQL error: ${result.error}`);
         return json({ rows: result.rows, rowCount: result.rowCount });
       }),

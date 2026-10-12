@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "openfinance",
   "display_name": "OpenFinance",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Connect your financial accounts to view balances, search transactions, and get spending insights.",
   "author": {
     "name": "OpenFinance"
@@ -19,6 +19,7 @@
       }
     }
   },
+  "tools_generated": true,
   "user_config": {
     "api_key": {
       "type": "string",
@@ -35,24 +36,6 @@
       "default": "https://api.openfinance.sh"
     }
   },
-  "tools": [
-    {
-      "name": "get_accounts",
-      "description": "Get all connected financial accounts with balances and institution info"
-    },
-    {
-      "name": "create_reconnect_link",
-      "description": "Create a link that reconnects a disconnected bank account without signing in to OpenFinance. Use it when get_accounts shows a syncError, then give the URL to the account's owner. Links expire after 24 hours."
-    },
-    {
-      "name": "get_transactions",
-      "description": "Search and filter financial transactions. Returns transactions sorted by date (newest first) by default. For spending analysis, category breakdowns, or questions like 'how much do I spend on X', fetch all transactions (high limit, no search filter) and categorize them client-side by analyzing merchant/transaction names, since transactions do not have category labels."
-    },
-    {
-      "name": "query_transactions",
-      "description": "Run a validated SQL SELECT against the user's scoped `txns` relation for aggregation and analysis. Supports subqueries, joins, UNIONs, and approved analysis functions; rejects other relations, caller-defined CTEs, and window functions. Runs read-only with a 5s timeout and 1000 result-row limit."
-    }
-  ],
   "keywords": ["finance", "banking", "transactions", "accounts"],
   "license": "MIT"
 }

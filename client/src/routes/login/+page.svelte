@@ -1,29 +1,23 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { authClient } from "$lib/auth-client";
-  import { API_BASE } from "$lib/api-client";
+  import {
+    connectorAuthorizeUrl,
+    isConnectorSignIn,
+  } from "$lib/oauth/connector";
 
   let isSigningIn = $state(false);
 
   const session = authClient.useSession();
 
-  // A connector's authorize request sends signed-out users here with its
-  // parameters. After sign-in we go back to authorize so it gets its code.
-  const isConnectorLogin = $derived(page.url.searchParams.has("client_id"));
-
-  function connectorAuthorizeUrl(): string {
-    const url = new URL(
-      `${API_BASE}/api/auth/mcp/authorize`,
-      window.location.href,
-    );
-    url.search = page.url.searchParams.toString();
-    return url.toString();
-  }
+  // A connector sent a signed-out user here. After sign-in, its authorize
+  // request resumes so it gets its code.
+  const isConnectorLogin = $derived(isConnectorSignIn(page.url));
 
   // Already signed in, for example in another tab: carry on straight away.
   $effect(() => {
     if (isConnectorLogin && $session.data) {
-      window.location.href = connectorAuthorizeUrl();
+      window.location.href = connectorAuthorizeUrl(page.url);
     }
   });
 </script>
@@ -49,7 +43,7 @@
       authClient.signIn.social({
         provider: "google",
         callbackURL: isConnectorLogin
-          ? connectorAuthorizeUrl()
+          ? connectorAuthorizeUrl(page.url)
           : new URL("/", window.location.href).toString(),
       });
     }}
