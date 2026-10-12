@@ -55,3 +55,12 @@ export {
   type Notification,
   type NewNotification,
 } from "./lib/sql/notifications.sql";
+
+export {
+  oauthApplication,
+  oauthAccessToken,
+  oauthConsent,
+  type OauthApplication,
+  type OauthAccessToken,
+  type OauthConsent,
+} from "./lib/sql/oauth.sql";

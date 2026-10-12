@@ -5,8 +5,9 @@ import { auth } from "../auth.js";
 import { db } from "../db.js";
 import { apiKeys, user as userTable } from "../schema.js";
 import { eq } from "drizzle-orm";
+import { serverUrl } from "./origins.js";
 
-type AuthUser = {
+export type AuthUser = {
   id: string;
   name: string;
   email: string;
@@ -18,7 +19,8 @@ export type AuthEnv = {
     user: AuthUser;
     // How the request authenticated. API keys are read-only, so endpoints that
     // mutate account state or expose sensitive data must use `requireSession`.
-    authMethod: "session" | "apiKey";
+    // OAuth access tokens come from MCP connectors and only work at /mcp.
+    authMethod: "session" | "apiKey" | "oauth";
   };
 };
 
@@ -50,7 +52,21 @@ async function authenticateApiKey(
       () => {},
     );
 
-  // Look up the user
+  return loadTokenUser(row.userId);
+}
+
+// better-auth's getMcpSession only looks the token up; it doesn't check that
+// it's still valid, so the expiry is checked here.
+async function authenticateOAuthToken(c: Context): Promise<AuthUser | null> {
+  const token = await auth.api.getMcpSession({ headers: c.req.raw.headers });
+  if (!token?.userId || !token.accessTokenExpiresAt) return null;
+  if (new Date(token.accessTokenExpiresAt) <= new Date()) return null;
+  return loadTokenUser(token.userId);
+}
+
+// The user an API key or OAuth token acts for. A token's first use also marks
+// the account's first AI connection for onboarding.
+async function loadTokenUser(userId: string): Promise<AuthUser | null> {
   const [u] = await db
     .select({
       id: userTable.id,
@@ -60,7 +76,7 @@ async function authenticateApiKey(
       firstMcpLinkedAt: userTable.firstMcpLinkedAt,
     })
     .from(userTable)
-    .where(eq(userTable.id, row.userId))
+    .where(eq(userTable.id, userId))
     .limit(1);
 
   // Set firstMcpLinkedAt if not already set (fire-and-forget)
@@ -126,3 +142,42 @@ export const requireSession = createMiddleware<AuthEnv>(async (c, next) => {
   c.set("authMethod", "session");
   await next();
 });
+
+// The hosted MCP endpoint takes an API key or an OAuth access token from an MCP
+// connector's sign-in. Session cookies aren't accepted, so a web page the user
+// visits can't call the tools. Failures get a 401 whose WWW-Authenticate
+// challenge tells MCP clients where to find the OAuth server.
+export const requireMcpAuth = createMiddleware<AuthEnv>(async (c, next) => {
+  const authHeader = c.req.header("Authorization");
+  if (authHeader?.startsWith("Bearer sk-")) {
+    const apiUser = await authenticateApiKey(authHeader);
+    if (!apiUser) return mcpUnauthorized(c);
+    c.set("user", apiUser);
+    c.set("authMethod", "apiKey");
+    return next();
+  }
+
+  if (authHeader?.startsWith("Bearer ")) {
+    const oauthUser = await authenticateOAuthToken(c);
+    if (!oauthUser) return mcpUnauthorized(c);
+    c.set("user", oauthUser);
+    c.set("authMethod", "oauth");
+    return next();
+  }
+
+  return mcpUnauthorized(c);
+});
+
+function mcpUnauthorized(c: Context) {
+  return c.json(
+    {
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Unauthorized" },
+      id: null,
+    },
+    401,
+    {
+      "WWW-Authenticate": `Bearer resource_metadata="${serverUrl}/.well-known/oauth-protected-resource"`,
+    },
+  );
+}

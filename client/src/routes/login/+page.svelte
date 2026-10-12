@@ -1,7 +1,31 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import { authClient } from "$lib/auth-client";
+  import { API_BASE } from "$lib/api-client";
 
   let isSigningIn = $state(false);
+
+  const session = authClient.useSession();
+
+  // A connector's authorize request sends signed-out users here with its
+  // parameters. After sign-in we go back to authorize so it gets its code.
+  const isConnectorLogin = $derived(page.url.searchParams.has("client_id"));
+
+  function connectorAuthorizeUrl(): string {
+    const url = new URL(
+      `${API_BASE}/api/auth/mcp/authorize`,
+      window.location.href,
+    );
+    url.search = page.url.searchParams.toString();
+    return url.toString();
+  }
+
+  // Already signed in, for example in another tab: carry on straight away.
+  $effect(() => {
+    if (isConnectorLogin && $session.data) {
+      window.location.href = connectorAuthorizeUrl();
+    }
+  });
 </script>
 
 <main
@@ -11,7 +35,11 @@
     <img src="/favicon.svg" alt="OpenFinance" class="h-12 w-12" />
   </a>
   <h1 class="text-2xl font-semibold text-[var(--text)]">Sign in</h1>
-  <p class="mt-2 text-sm text-[var(--text-muted)]">to continue to OpenFinance</p>
+  <p class="mt-2 text-sm text-[var(--text-muted)]">
+    {isConnectorLogin
+      ? "to connect an app to OpenFinance"
+      : "to continue to OpenFinance"}
+  </p>
 
   <button
     class="mt-8 flex items-center justify-center gap-3 rounded-full bg-[var(--accent)] px-8 py-3 text-sm font-medium text-[var(--bg)] cursor-pointer hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -20,7 +48,9 @@
       isSigningIn = true;
       authClient.signIn.social({
         provider: "google",
-        callbackURL: new URL("/", window.location.href).toString(),
+        callbackURL: isConnectorLogin
+          ? connectorAuthorizeUrl()
+          : new URL("/", window.location.href).toString(),
       });
     }}
   >

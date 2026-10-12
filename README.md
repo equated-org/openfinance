@@ -33,13 +33,16 @@ dates, pending status, currency, and read-only SQL queries over transactions.
 
 Use one of:
 
+- **MCP** - add `https://api.openfinance.sh/mcp` to Claude, ChatGPT, Codex,
+  Cursor, OpenClaw, Grok bots, or any MCP client. You sign in once, or send
+  your API key as a bearer token.
 - **Skill** - copy it from the app's Connect tab
-- **MCP** - use
-  [`@openfinance-sh/mcp`](https://www.npmjs.com/package/@openfinance-sh/mcp)
 - **REST API** - call OpenFinance directly with an API key
 
-See [skill/SKILL.md](skill/SKILL.md) and
-[docs/mcp-server.md](docs/mcp-server.md).
+The original local MCP server,
+[`@openfinance-sh/mcp`](https://www.npmjs.com/package/@openfinance-sh/mcp),
+still works for existing setups. See [docs/mcp-server.md](docs/mcp-server.md)
+and [skill/SKILL.md](skill/SKILL.md).
 
 ## Quick start
 
@@ -47,7 +50,7 @@ Hosted app:
 
 1. Go to [app.openfinance.sh](https://app.openfinance.sh).
 2. Connect a financial account.
-3. Copy your Skill, MCP config, or API key from the Connect tab.
+3. Follow the Connect tab to add OpenFinance to your AI app.
 4. Ask your AI about your finances.
 
 Self-hosted development:

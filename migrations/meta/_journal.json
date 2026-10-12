@@ -134,6 +134,13 @@
       "when": 1791758517853,
       "tag": "0018_reconnect-links-quiltt-session",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791764953368,
+      "tag": "0019_mcp-oauth",
+      "breakpoints": true
     }
   ]
 }

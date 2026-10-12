@@ -11,6 +11,7 @@
     "@dbos-inc/dbos-sdk": "^4.15.5",
     "@hono/node-server": "^1.13.0",
     "@hono/zod-validator": "^0.7.6",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@openfinance/shared": "workspace:*",
     "better-auth": "^1.2.0",
     "commander": "^14.0.3",

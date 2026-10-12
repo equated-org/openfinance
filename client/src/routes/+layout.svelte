@@ -10,17 +10,24 @@
 
   const session = authClient.useSession();
 
-  // Reconnect links are opened by people who aren't signed in.
-  const isPublicPage = $derived($page.url.pathname.startsWith("/reconnect"));
+  // Reconnect links and the connector consent screen can be opened by people
+  // who aren't signed in to the app.
+  const isPublicPage = $derived(
+    $page.url.pathname.startsWith("/reconnect") ||
+      $page.url.pathname.startsWith("/oauth"),
+  );
 
   $effect(() => {
     if ($session.isPending || isPublicPage) return;
 
     const isLoginPage = $page.url.pathname.startsWith("/login");
+    // The login page finishes a connector's sign-in itself.
+    const isConnectorLogin =
+      isLoginPage && $page.url.searchParams.has("client_id");
 
     if (!$session.data && !isLoginPage) {
       goto("/login");
-    } else if ($session.data && isLoginPage) {
+    } else if ($session.data && isLoginPage && !isConnectorLogin) {
       goto("/");
     }
   });
