@@ -17,8 +17,9 @@ describe("GET /setup.md", () => {
       "claude mcp add --scope user --transport http openfinance http://localhost:3000/mcp",
     );
     expect(guide).not.toContain("{{");
-    // OpenClaw fills this in from the gateway's environment, so it stays.
-    expect(guide).toContain('"Bearer ${OPENFINANCE_API_KEY}"');
+    expect(guide).toContain(
+      `openclaw mcp set openfinance '{"url":"http://localhost:3000/mcp","transport":"streamable-http","auth":"oauth"}'`,
+    );
   });
 
   it("shows browsers plain text instead of downloading it", async () => {

@@ -55,16 +55,19 @@ Then ask the user to sign in from Cursor's MCP settings.
 
 ## OpenClaw
 
-With the user's API key in the gateway's `OPENFINANCE_API_KEY` environment
-variable:
+Add the server, then ask the user to sign in by running
+`openclaw mcp login openfinance`:
 
 ```sh
-openclaw mcp set openfinance '{"url":"{{mcpUrl}}","transport":"streamable-http","headers":{"Authorization":"Bearer ${OPENFINANCE_API_KEY}"}}'
+openclaw mcp set openfinance '{"url":"{{mcpUrl}}","transport":"streamable-http","auth":"oauth"}'
 ```
 
-To sign in with OAuth instead, set
-`{"url":"{{mcpUrl}}","transport":"streamable-http","auth":"oauth"}` and ask the
-user to run `openclaw mcp login openfinance`.
+To use the user's API key instead, put it in the server's headers. The
+gateway runs as a background service, so it won't see a shell variable:
+
+```sh
+openclaw mcp set openfinance '{"url":"{{mcpUrl}}","transport":"streamable-http","headers":{"Authorization":"Bearer <API key>"}}'
+```
 
 ## Claude (web, desktop, mobile) and ChatGPT
 

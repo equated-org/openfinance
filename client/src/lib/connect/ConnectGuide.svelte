@@ -60,15 +60,23 @@
   const cursorConfig = $derived(
     JSON.stringify({ mcpServers: { openfinance: { url: mcpUrl } } }, null, 2),
   );
-  // OpenClaw fills in ${OPENFINANCE_API_KEY} from the gateway's environment.
   const openClawCommand = $derived(
     `openclaw mcp set openfinance '${JSON.stringify({
       url: mcpUrl,
       transport: "streamable-http",
-      headers: { Authorization: "Bearer ${OPENFINANCE_API_KEY}" },
-    })}'`,
+      auth: "oauth",
+    })}'\nopenclaw mcp login openfinance`,
   );
-  const clawhubCommand = "npx clawhub@latest install openfinance";
+  // OpenClaw's gateway runs as a background service and doesn't see shell
+  // variables, so the key goes in the server's headers.
+  function openClawKeyCommand(key: string) {
+    return `openclaw mcp set openfinance '${JSON.stringify({
+      url: mcpUrl,
+      transport: "streamable-http",
+      headers: { Authorization: `Bearer ${key}` },
+    })}'`;
+  }
+  const clawhubCommand = "openclaw skills install @winxton/openfinance";
 
   function exportCommand(key: string) {
     return `export OPENFINANCE_API_KEY=${key}`;
@@ -299,20 +307,20 @@
     <h3 class="text-sm font-medium text-[var(--text)]">OpenClaw</h3>
     {@render copyBlock(
       "openclaw",
-      "Add the server",
+      "Add the server and sign in",
       openClawCommand,
       openClawCommand,
     )}
     {@render copyBlock(
       "openclaw-key",
-      "Then set your API key where the gateway runs",
-      exportCommand(maskedKey),
-      exportCommand(keyForCopy),
+      "Or use your API key instead of signing in",
+      openClawKeyCommand(maskedKey),
+      openClawKeyCommand(keyForCopy),
     )}
     {@render keyNote()}
     {@render copyBlock(
       "clawhub",
-      "Or install the skill instead",
+      "Or install the skill, then add your key under skills.entries.openfinance.env in ~/.openclaw/openclaw.json",
       clawhubCommand,
       clawhubCommand,
     )}
