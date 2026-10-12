@@ -2,12 +2,11 @@
   import { Button } from "$lib/components/ui/button";
   import * as Tabs from "$lib/components/ui/tabs";
   import {
-    Download,
+    Check,
     Copy,
-    Terminal,
-    RefreshCw,
-    Sparkles,
     MessageCircle,
+    Sparkles,
+    Terminal,
   } from "lucide-svelte";
 
   interface Props {
@@ -31,13 +30,35 @@
     tab = $bindable("claude"),
   }: Props = $props();
 
+  // One numbered step: a title, and at most a line of detail plus a code
+  // block or a button. `copy` is what the copy button copies, when it differs
+  // from what's shown (the full key instead of the masked one).
+  type Step = {
+    title: string;
+    detail?: string;
+    code?: { display: string; copy?: string };
+    action?: {
+      label: string;
+      onclick?: () => void;
+      disabled?: boolean;
+      error?: string | null;
+    };
+  };
+
+  type Guide = {
+    value: string;
+    label: string;
+    /** The app's domain, for its logo, or an icon for generic entries. */
+    logo: string | typeof Terminal;
+    sections: { title?: string; steps: Step[] }[];
+  };
+
   const logoDevKey = import.meta.env.VITE_LOGO_DEV_PUBLISHABLE_KEY;
 
   const MCP_PACKAGE_NAME = "@openfinance-sh/mcp";
   const DEFAULT_OPENFINANCE_URL = "https://api.openfinance.sh";
   // The docs site publishes the skill, so agents fetch it instead of the user
   // pasting it in.
-  const SKILL_PAGE_URL = "https://openfinance.sh/docs/skill";
   const skillPrompt =
     "Read https://openfinance.sh/docs/skill.md and save it as a skill.";
 
@@ -53,20 +74,10 @@
   );
   const keyForCopy = $derived(apiKey ?? "sk-...");
 
-  const claudeCodeCommand = $derived(
-    `claude mcp add --scope user --transport http openfinance ${mcpUrl}`,
-  );
-  const codexCommand = $derived(`codex mcp add openfinance --url ${mcpUrl}`);
-  const cursorConfig = $derived(
-    JSON.stringify({ mcpServers: { openfinance: { url: mcpUrl } } }, null, 2),
-  );
-  const openClawCommand = $derived(
-    `openclaw mcp set openfinance '${JSON.stringify({
-      url: mcpUrl,
-      transport: "streamable-http",
-      auth: "oauth",
-    })}'\nopenclaw mcp login openfinance`,
-  );
+  function exportCommand(key: string) {
+    return `export OPENFINANCE_API_KEY=${key}`;
+  }
+
   // OpenClaw's gateway runs as a background service and doesn't see shell
   // variables, so the key goes in the server's headers.
   function openClawKeyCommand(key: string) {
@@ -75,11 +86,6 @@
       transport: "streamable-http",
       headers: { Authorization: `Bearer ${key}` },
     })}'`;
-  }
-  const clawhubCommand = "openclaw skills install @winxton/openfinance";
-
-  function exportCommand(key: string) {
-    return `export OPENFINANCE_API_KEY=${key}`;
   }
 
   function grokTool(key: string) {
@@ -115,9 +121,226 @@
     );
   }
 
-  function legacyCodexCommand(key: string) {
-    return `codex mcp add openfinance --env OPENFINANCE_API_KEY=${key} --env OPENFINANCE_URL=${DEFAULT_OPENFINANCE_URL} -- npx -y ${MCP_PACKAGE_NAME}`;
-  }
+  const guides: Guide[] = $derived([
+    {
+      value: "claude",
+      label: "Claude",
+      logo: "anthropic.com",
+      sections: [
+        {
+          title: "Claude app",
+          steps: [
+            {
+              title: "Add a custom connector",
+              detail: "Customize → Connectors → + → Add custom connector",
+            },
+            { title: "Paste the URL", code: { display: mcpUrl } },
+            { title: "Connect and sign in to OpenFinance" },
+          ],
+        },
+        {
+          title: "Claude Code",
+          steps: [
+            {
+              title: "Add the server",
+              code: {
+                display: `claude mcp add --scope user --transport http openfinance ${mcpUrl}`,
+              },
+            },
+            {
+              title: "Sign in",
+              detail: "Run /mcp, pick openfinance, then Authenticate",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "chatgpt",
+      label: "ChatGPT",
+      logo: "chatgpt.com",
+      sections: [
+        {
+          steps: [
+            {
+              title: "Add an MCP server",
+              detail: "Plugins → Add → Add MCP server",
+            },
+            { title: "Paste the URL", code: { display: mcpUrl } },
+            { title: "Sign in to OpenFinance when asked" },
+          ],
+        },
+      ],
+    },
+    {
+      value: "codex",
+      label: "Codex",
+      logo: "openai.com",
+      sections: [
+        {
+          steps: [
+            {
+              title: "Add the server",
+              code: { display: `codex mcp add openfinance --url ${mcpUrl}` },
+            },
+            {
+              title: "Sign in",
+              detail:
+                "Codex opens your browser. If it doesn't, run codex mcp login openfinance",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "cursor",
+      label: "Cursor",
+      logo: "cursor.com",
+      sections: [
+        {
+          steps: [
+            {
+              title: "Add the server to ~/.cursor/mcp.json",
+              code: {
+                display: JSON.stringify(
+                  { mcpServers: { openfinance: { url: mcpUrl } } },
+                  null,
+                  2,
+                ),
+              },
+            },
+            { title: "Sign in from Cursor's MCP settings" },
+          ],
+        },
+      ],
+    },
+    {
+      value: "openclaw",
+      label: "OpenClaw",
+      logo: "openclaw.ai",
+      sections: [
+        {
+          steps: [
+            {
+              title: "Add the server",
+              code: {
+                display: `openclaw mcp set openfinance '${JSON.stringify({
+                  url: mcpUrl,
+                  transport: "streamable-http",
+                  auth: "oauth",
+                })}'`,
+              },
+            },
+            {
+              title: "Sign in",
+              code: { display: "openclaw mcp login openfinance" },
+            },
+          ],
+        },
+        {
+          title: "Or use your API key",
+          steps: [
+            {
+              title: "Add the server with your key",
+              code: {
+                display: openClawKeyCommand(maskedKey),
+                copy: openClawKeyCommand(keyForCopy),
+              },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "grok",
+      label: "Grok",
+      logo: "x.ai",
+      sections: [
+        {
+          steps: [
+            {
+              title: "Add OpenFinance to your xAI API request's tools",
+              code: { display: grokTool(maskedKey), copy: grokTool(keyForCopy) },
+            },
+            {
+              title: "Keep the key on your server",
+              detail: "Never put it in code that runs in a browser",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "muse",
+      label: "Muse",
+      logo: MessageCircle,
+      sections: [
+        {
+          steps: [
+            { title: "Ask Muse to connect to OpenFinance" },
+            { title: "Tap Connect on the OpenFinance connector" },
+            {
+              title: "Paste your API key",
+              code: { display: maskedKey, copy: keyForCopy },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "skill",
+      label: "Skill",
+      logo: Sparkles,
+      sections: [
+        {
+          steps: [
+            { title: "Paste this into your agent", code: { display: skillPrompt } },
+            {
+              title: "Set your API key where the agent runs",
+              code: {
+                display: exportCommand(maskedKey),
+                copy: exportCommand(keyForCopy),
+              },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      value: "legacy",
+      label: "Legacy",
+      logo: Terminal,
+      sections: [
+        {
+          title: "Claude Desktop",
+          steps: [
+            {
+              title: "Download the bundle",
+              action: {
+                label: downloadingBundle ? "Downloading…" : "Download .mcpb",
+                onclick: onDownloadBundle,
+                disabled: downloadingBundle,
+                error: downloadError,
+              },
+            },
+            { title: "Open it and enter your API key" },
+          ],
+        },
+        {
+          title: "Other MCP clients",
+          steps: [
+            {
+              title: "Add the local server to your MCP config",
+              code: {
+                display: legacyMcpConfig(maskedKey),
+                copy: legacyMcpConfig(keyForCopy),
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ]);
 
   async function copy(id: string, text: string) {
     await navigator.clipboard.writeText(text);
@@ -128,321 +351,127 @@
   }
 </script>
 
-{#snippet copyBlock(id: string, label: string, display: string, text: string)}
-  <div class="mt-4 flex items-center justify-between gap-2 mb-2">
-    <h4 class="text-xs font-medium text-[var(--text)]">{label}</h4>
-    <Button variant="secondary" size="sm" onclick={() => copy(id, text)}>
-      <Copy class="h-3.5 w-3.5 mr-1" />
-      {copiedId === id ? "Copied" : "Copy"}
-    </Button>
+{#snippet codeBlock(id: string, display: string, text: string)}
+  <div
+    class="mt-2 flex items-start gap-2 rounded-md bg-[var(--bg-muted)] py-2 pl-3 pr-1.5"
+  >
+    <pre
+      class="min-w-0 flex-1 whitespace-pre-wrap break-all py-0.5 text-xs text-[var(--text)]"><code
+        >{display}</code
+      ></pre>
+    <button
+      type="button"
+      aria-label="Copy"
+      class="shrink-0 rounded p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+      onclick={() => copy(id, text)}
+    >
+      {#if copiedId === id}
+        <Check class="h-3.5 w-3.5" />
+      {:else}
+        <Copy class="h-3.5 w-3.5" />
+      {/if}
+    </button>
   </div>
-  <pre
-    class="text-xs text-[var(--text)] bg-[var(--bg-muted)] rounded p-2 overflow-x-auto whitespace-pre-wrap break-all"><code
-      >{display}</code
-    ></pre>
 {/snippet}
 
-{#snippet steps(items: string[])}
-  <ol
-    class="mt-2 list-decimal space-y-1 pl-4 text-xs text-[var(--text-muted)]"
-  >
-    {#each items as item}
-      <li>{item}</li>
+{#snippet stepList(id: string, steps: Step[])}
+  <ol>
+    {#each steps as step, i}
+      <li class="relative flex gap-3 pb-6 last:pb-0">
+        {#if i < steps.length - 1}
+          <span
+            aria-hidden="true"
+            class="absolute bottom-1 left-3 top-8 w-px bg-[var(--border)]"
+          ></span>
+        {/if}
+        <span
+          class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-xs font-medium text-[var(--text-muted)]"
+          >{i + 1}</span
+        >
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium leading-6 text-[var(--text)]">
+            {step.title}
+          </p>
+          {#if step.detail}
+            <p class="text-xs text-[var(--text-muted)]">{step.detail}</p>
+          {/if}
+          {#if step.code}
+            {@render codeBlock(
+              `${id}-${i}`,
+              step.code.display,
+              step.code.copy ?? step.code.display,
+            )}
+          {/if}
+          {#if step.action}
+            <Button
+              variant="secondary"
+              size="sm"
+              class="mt-2"
+              disabled={step.action.disabled}
+              onclick={step.action.onclick}
+            >
+              {step.action.label}
+            </Button>
+            {#if step.action.error}
+              <p class="mt-1 text-xs text-red-600">{step.action.error}</p>
+            {/if}
+          {/if}
+        </div>
+      </li>
     {/each}
   </ol>
 {/snippet}
 
-{#snippet keyNote()}
-  {#if !apiKey}
-    <p class="text-xs text-[var(--text-muted)] mt-2">
-      Replace <code>sk-...</code> with your API key.
-    </p>
-  {/if}
-{/snippet}
-
-<!-- logo is the app's domain, for its logo, or an icon for generic entries. -->
-{#snippet tabTrigger(value: string, label: string, logo: string | typeof Terminal)}
-  <Tabs.Trigger
-    {value}
-    class="flex shrink-0 items-center gap-2 px-2.5 py-2 text-sm font-medium text-[var(--text-muted)] border-b-2 border-transparent data-[state=active]:text-[var(--text)] data-[state=active]:border-[var(--text)] transition-colors cursor-pointer"
-  >
-    {#if typeof logo === "string"}
-      <img
-        src="https://img.logo.dev/{logo}?token={logoDevKey}&size=64&format=png"
-        alt={label}
-        class="h-4 w-4"
-      />
-    {:else}
-      {@const Icon = logo}
-      <Icon class="h-4 w-4" />
-    {/if}
-    {label}
-  </Tabs.Trigger>
-{/snippet}
-
-<div class="mb-4">
+<div class="mb-6">
   <h2 class="text-base font-semibold text-[var(--text)]">
     Connect accounts to your AI
   </h2>
-  <p class="text-sm text-[var(--text-muted)] mt-1">
-    Add OpenFinance to any app that supports MCP with this URL. You'll sign in
-    to OpenFinance the first time. Apps that can't sign in use your API key
-    instead.
+  <p class="mt-1 text-sm text-[var(--text-muted)]">
+    Add this URL to any app that supports MCP, then sign in.
   </p>
-</div>
-
-<div class="rounded-lg border border-[var(--border)] p-4 mb-6">
-  <div class="flex items-center gap-2">
-    <code
-      class="flex-1 min-w-0 break-all rounded-md bg-[var(--bg-muted)] px-3 py-2 text-sm text-[var(--text)]"
-      >{mcpUrl}</code
-    >
-    <Button variant="secondary" size="sm" onclick={() => copy("url", mcpUrl)}>
-      <Copy class="h-3.5 w-3.5 mr-1" />
-      {copiedId === "url" ? "Copied" : "Copy URL"}
-    </Button>
-  </div>
-  {@render copyBlock(
-    "prompt",
-    "Or let your agent set it up: paste this into Claude Code, Codex, Cursor, or OpenClaw",
-    agentPrompt,
-    agentPrompt,
-  )}
+  {@render codeBlock("url", mcpUrl, mcpUrl)}
+  <p class="mt-4 text-xs text-[var(--text-muted)]">
+    Or have your agent set itself up:
+  </p>
+  {@render codeBlock("prompt", agentPrompt, agentPrompt)}
 </div>
 
 <Tabs.Root bind:value={tab}>
   <Tabs.List
-    class="flex max-w-full justify-start gap-1 overflow-x-auto [scrollbar-width:none] border-b border-[var(--border)] mb-4"
+    class="flex max-w-full justify-start gap-1 overflow-x-auto [scrollbar-width:none] border-b border-[var(--border)] mb-5"
   >
-    {@render tabTrigger("claude", "Claude", "anthropic.com")}
-    {@render tabTrigger("chatgpt", "ChatGPT", "chatgpt.com")}
-    {@render tabTrigger("codex", "Codex", "openai.com")}
-    {@render tabTrigger("cursor", "Cursor", "cursor.com")}
-    {@render tabTrigger("openclaw", "OpenClaw", "openclaw.ai")}
-    {@render tabTrigger("grok", "Grok", "x.ai")}
-    {@render tabTrigger("muse", "Muse", MessageCircle)}
-    {@render tabTrigger("skill", "Skill", Sparkles)}
-    {@render tabTrigger("legacy", "Legacy", Terminal)}
+    {#each guides as guide}
+      <Tabs.Trigger
+        value={guide.value}
+        class="flex shrink-0 items-center gap-2 px-2.5 py-2 text-sm font-medium text-[var(--text-muted)] border-b-2 border-transparent data-[state=active]:text-[var(--text)] data-[state=active]:border-[var(--text)] transition-colors cursor-pointer"
+      >
+        {#if typeof guide.logo === "string"}
+          <img
+            src="https://img.logo.dev/{guide.logo}?token={logoDevKey}&size=64&format=png"
+            alt={guide.label}
+            class="h-4 w-4"
+          />
+        {:else}
+          {@const Icon = guide.logo}
+          <Icon class="h-4 w-4" />
+        {/if}
+        {guide.label}
+      </Tabs.Trigger>
+    {/each}
   </Tabs.List>
 
-  <Tabs.Content
-    value="claude"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">
-      Claude on the web, desktop, and mobile
-    </h3>
-    {@render steps([
-      "In Claude, open Customize → Connectors (Settings → Connectors in the desktop app), then choose + → Add custom connector.",
-      "Paste the URL above and select Add.",
-      "Select Connect and sign in to OpenFinance. Leave the advanced OAuth settings empty.",
-    ])}
-    <p class="mt-2 text-xs text-[var(--text-muted)]">
-      On Team and Enterprise plans, an owner adds the connector first under
-      Organization settings → Connectors.
-    </p>
-
-    <h3 class="mt-6 text-sm font-medium text-[var(--text)]">Claude Code</h3>
-    {@render copyBlock(
-      "claude-code",
-      "Run this in a terminal",
-      claudeCodeCommand,
-      claudeCodeCommand,
-    )}
-    <p class="mt-2 text-xs text-[var(--text-muted)]">
-      Then run <code>/mcp</code> in Claude Code, select openfinance, and choose Authenticate.
-    </p>
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="chatgpt"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">ChatGPT</h3>
-    {@render steps([
-      "In ChatGPT, open Plugins, then choose Add → Add MCP server.",
-      "Paste the URL above and name it OpenFinance.",
-      "Sign in to OpenFinance when ChatGPT asks.",
-    ])}
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="codex"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">Codex</h3>
-    {@render copyBlock(
-      "codex",
-      "Run this in a terminal",
-      codexCommand,
-      codexCommand,
-    )}
-    <p class="mt-2 text-xs text-[var(--text-muted)]">
-      Codex opens your browser to sign in to OpenFinance. If it doesn't, run
-      <code>codex mcp login openfinance</code>. To use your API key instead, add
-      <code>--bearer-token-env-var OPENFINANCE_API_KEY</code>.
-    </p>
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="cursor"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">Cursor</h3>
-    {@render copyBlock(
-      "cursor",
-      "Add this to ~/.cursor/mcp.json, keeping any other servers",
-      cursorConfig,
-      cursorConfig,
-    )}
-    <p class="mt-2 text-xs text-[var(--text-muted)]">
-      Then sign in to OpenFinance from Cursor's MCP settings.
-    </p>
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="openclaw"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">OpenClaw</h3>
-    {@render copyBlock(
-      "openclaw",
-      "Add the server and sign in",
-      openClawCommand,
-      openClawCommand,
-    )}
-    {@render copyBlock(
-      "openclaw-key",
-      "Or use your API key instead of signing in",
-      openClawKeyCommand(maskedKey),
-      openClawKeyCommand(keyForCopy),
-    )}
-    {@render keyNote()}
-    {@render copyBlock(
-      "clawhub",
-      "Or install the skill, then add your key under skills.entries.openfinance.env in ~/.openclaw/openclaw.json",
-      clawhubCommand,
-      clawhubCommand,
-    )}
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="grok"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">Grok bots (xAI API)</h3>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">
-      Add OpenFinance as a remote MCP tool in your xAI API requests. Keep the key
-      on your server, never in code that runs in a browser.
-    </p>
-    {@render copyBlock(
-      "grok",
-      "Tool definition",
-      grokTool(maskedKey),
-      grokTool(keyForCopy),
-    )}
-    {@render keyNote()}
-  </Tabs.Content>
-
-  <Tabs.Content value="muse" class="rounded-lg border border-[var(--border)] p-4">
-    <h3 class="text-sm font-medium text-[var(--text)]">Muse</h3>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">
-      Muse doesn't support MCP yet, so it connects with your API key.
-    </p>
-    {@render steps([
-      "In Muse, say “Connect to OpenFinance”.",
-      "Tap Connect on the OpenFinance connector.",
-      "Paste your API key.",
-    ])}
-    <div class="mt-4">
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={!apiKey}
-        onclick={() => apiKey && copy("muse-key", apiKey)}
-      >
-        <Copy class="h-3.5 w-3.5 mr-1" />
-        {copiedId === "muse-key" ? "Copied" : "Copy API key"}
-      </Button>
-    </div>
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="skill"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">Install as a Skill</h3>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">
-      For agents that load skills instead of MCP. The skill is in the
-      <a
-        href={SKILL_PAGE_URL}
-        target="_blank"
-        rel="noreferrer"
-        class="underline underline-offset-2 hover:text-[var(--text)]">docs</a
-      >, so your agent can fetch it.
-    </p>
-    {@render copyBlock(
-      "skill-prompt",
-      "Paste this into your agent",
-      skillPrompt,
-      skillPrompt,
-    )}
-    {@render copyBlock(
-      "skill-key",
-      "Then set your API key where the agent runs",
-      exportCommand(maskedKey),
-      exportCommand(keyForCopy),
-    )}
-    {@render keyNote()}
-  </Tabs.Content>
-
-  <Tabs.Content
-    value="legacy"
-    class="rounded-lg border border-[var(--border)] p-4"
-  >
-    <h3 class="text-sm font-medium text-[var(--text)]">Local MCP server</h3>
-    <p class="mt-1 text-xs text-[var(--text-muted)]">
-      The original server runs on your computer with Node, using
-      <code>{MCP_PACKAGE_NAME}</code>. Existing setups keep working, but the URL
-      above needs nothing installed and gets new tools automatically.
-    </p>
-
-    <div class="mt-4 flex items-center justify-between gap-2">
-      <h4 class="text-xs font-medium text-[var(--text)]">Claude Desktop</h4>
-      <button
-        type="button"
-        onclick={onDownloadBundle}
-        disabled={downloadingBundle}
-        class="inline-flex items-center gap-1.5 rounded-md bg-[#E87B35] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#D16A2A] transition-colors"
-      >
-        {#if downloadingBundle}
-          <RefreshCw class="h-3.5 w-3.5 animate-spin" />
-          Downloading...
-        {:else}
-          <Download class="h-3.5 w-3.5" />
-          Download .mcpb
-        {/if}
-      </button>
-    </div>
-    {#if downloadError}
-      <p class="text-xs text-red-600 mt-2">{downloadError}</p>
-    {/if}
-    <p class="mt-2 text-xs text-[var(--text-muted)]">
-      Double-click the bundle to install it. You'll be asked for your API key.
-    </p>
-
-    {@render copyBlock(
-      "legacy-codex",
-      "Codex",
-      legacyCodexCommand(maskedKey),
-      legacyCodexCommand(keyForCopy),
-    )}
-    {@render copyBlock(
-      "legacy-config",
-      "Other MCP clients",
-      legacyMcpConfig(maskedKey),
-      legacyMcpConfig(keyForCopy),
-    )}
-    {@render keyNote()}
-  </Tabs.Content>
+  {#each guides as guide}
+    <Tabs.Content value={guide.value} class="pl-1">
+      {#each guide.sections as section, s}
+        <div class={s > 0 ? "mt-8" : ""}>
+          {#if section.title}
+            <h3 class="mb-3 text-xs font-medium text-[var(--text-muted)]">
+              {section.title}
+            </h3>
+          {/if}
+          {@render stepList(`${guide.value}-${s}`, section.steps)}
+        </div>
+      {/each}
+    </Tabs.Content>
+  {/each}
 </Tabs.Root>
