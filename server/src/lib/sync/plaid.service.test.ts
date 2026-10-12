@@ -12,11 +12,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockTransactionsSync = vi.fn();
 const mockItemGet = vi.fn();
+const mockAccountsGet = vi.fn();
 
 vi.mock("./plaid.client", () => ({
   plaidClient: {
     transactionsSync: mockTransactionsSync,
     itemGet: mockItemGet,
+    accountsGet: mockAccountsGet,
   },
 }));
 
@@ -44,7 +46,7 @@ vi.mock("../../schema", () => ({
     providerAccountId: "providerAccountId",
     userId: "userId",
   },
-  accountConnections: { id: "id" },
+  accountConnections: { id: "id", userId: "userId" },
   syncJobs: {},
   institutionRegistry: {},
   transactions: {
@@ -89,11 +91,43 @@ function makeSyncResponse(overrides: {
   };
 }
 
+/** Build a minimal Plaid account object */
+function makeAccount(accountId: string) {
+  return {
+    account_id: accountId,
+    name: "Visa Credit",
+    official_name: null,
+    type: "credit",
+    subtype: "credit card",
+    mask: "0310",
+    balances: { current: 195.95, available: 9804.05, iso_currency_code: "USD" },
+  };
+}
+
+/** Account rows for connection 1, as `where` resolves them */
+function accountRows(...providerAccountIds: string[]) {
+  return providerAccountIds.map((providerAccountId, i) => ({
+    id: i + 1,
+    providerAccountId,
+    userId: "user-1",
+  }));
+}
+
+/**
+ * `where` ends some chains (awaited directly) and continues the connection
+ * lookup (`.limit(1)`), so it returns something that is both.
+ */
+function whereResult(rows: unknown[]) {
+  return Object.assign(Promise.resolve(rows), {
+    limit: () => Promise.resolve(rows),
+  });
+}
+
 /** Build a minimal Plaid transaction object */
-function makeTx(id: string) {
+function makeTx(id: string, accountId = "plaid-acct-1") {
   return {
     transaction_id: id,
-    account_id: "plaid-acct-1",
+    account_id: accountId,
     amount: 42.0,
     iso_currency_code: "USD",
     date: "2025-01-15",
@@ -107,15 +141,15 @@ function makeTx(id: string) {
 describe("PlaidService.syncTransactions", () => {
   beforeEach(() => {
     mockTransactionsSync.mockReset();
+    mockAccountsGet.mockReset();
+    mockAccountsGet.mockResolvedValue({
+      data: { accounts: [makeAccount("plaid-acct-1")] },
+    });
 
     // Re-wire the db mock chain for each test
     dbMock.select = vi.fn().mockReturnValue(dbMock);
     dbMock.from = vi.fn().mockReturnValue(dbMock);
-    dbMock.where = vi
-      .fn()
-      .mockResolvedValue([
-        { id: 1, providerAccountId: "plaid-acct-1", userId: "user-1" },
-      ]);
+    dbMock.where = vi.fn(() => whereResult(accountRows("plaid-acct-1")));
     dbMock.insert = vi.fn().mockReturnValue(dbMock);
     dbMock.values = vi.fn().mockReturnValue(dbMock);
     dbMock.onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
@@ -388,6 +422,72 @@ describe("PlaidService.syncTransactions", () => {
     expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
     expect(result.added).toBe(1);
     expect(result.nextCursor).toBe("cursor-2");
+  });
+
+  // A replacement card joins the Item with a new account_id. Accounts used to
+  // be saved only at link time, so its transactions were skipped on every sync
+  // while the cursor moved past them.
+  it("saves transactions for an account added to the Item after linking", async () => {
+    mockAccountsGet.mockResolvedValue({
+      data: {
+        accounts: [makeAccount("plaid-acct-1"), makeAccount("plaid-acct-2")],
+      },
+    });
+    // The new account's row exists only once its upsert has run.
+    let saved = false;
+    dbMock.values = vi.fn((row: Record<string, unknown>) => {
+      if (row.providerAccountId === "plaid-acct-2") saved = true;
+      return dbMock;
+    });
+    dbMock.where = vi.fn(() =>
+      whereResult(
+        saved
+          ? accountRows("plaid-acct-1", "plaid-acct-2")
+          : accountRows("plaid-acct-1"),
+      ),
+    );
+    mockTransactionsSync.mockResolvedValueOnce(
+      makeSyncResponse({
+        added: [makeTx("tx-new", "plaid-acct-2")],
+        next_cursor: "cursor-2",
+      }),
+    );
+
+    const result = await plaidService.syncTransactions({
+      connectionId: 1,
+      accessToken: "access-token",
+      cursor: "cursor-1",
+    });
+
+    expect(dbMock.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        accountConnectionId: 1,
+        providerAccountId: "plaid-acct-2",
+        mask: "0310",
+      }),
+    );
+    expect(dbMock.values).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 2, providerTransactionId: "tx-new" }),
+    );
+    expect(result.added).toBe(1);
+  });
+
+  it("warns about transactions for an account Plaid didn't list", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockTransactionsSync.mockResolvedValueOnce(
+      makeSyncResponse({ added: [makeTx("tx-1", "plaid-acct-9")] }),
+    );
+
+    const result = await plaidService.syncTransactions({
+      connectionId: 1,
+      accessToken: "access-token",
+      cursor: "cursor-1",
+    });
+
+    expect(result.added).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("plaid-acct-9"));
+    warn.mockRestore();
   });
 });
 

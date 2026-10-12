@@ -143,11 +143,6 @@ export class PlaidTransactionSyncWorkflow {
   }
 
   @DBOS.step()
-  static async refreshBalances(connectionId: number, accessToken: string) {
-    return plaidService.refreshBalances(connectionId, accessToken);
-  }
-
-  @DBOS.step()
   static async checkItemFreshness(
     accessToken: string,
   ): Promise<FreshnessResult> {
@@ -370,11 +365,6 @@ export class PlaidTransactionSyncWorkflow {
           return null;
         }
       }
-
-      await PlaidTransactionSyncWorkflow.refreshBalances(
-        connectionId,
-        connection.plaidAccessToken,
-      );
 
       const total = result.added + result.modified + result.removed;
       await PlaidTransactionSyncWorkflow.markComplete(syncJobId, total);

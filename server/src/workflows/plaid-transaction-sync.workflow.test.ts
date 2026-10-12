@@ -12,13 +12,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSyncTransactions = vi.fn();
 const mockGetItemStatus = vi.fn();
-const mockRefreshBalances = vi.fn();
 
 vi.mock("../lib/sync/plaid.service", () => ({
   plaidService: {
     syncTransactions: mockSyncTransactions,
     getItemStatus: mockGetItemStatus,
-    refreshBalances: mockRefreshBalances,
   },
 }));
 
@@ -101,7 +99,6 @@ describe("PlaidTransactionSyncWorkflow upstream pull", () => {
     vi.clearAllMocks();
     jobUpdates.length = 0;
     sleepCalls.length = 0;
-    mockRefreshBalances.mockResolvedValue(undefined);
     connectionRows = [];
   });
 

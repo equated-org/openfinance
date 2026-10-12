@@ -96,45 +96,11 @@ class PlaidService {
 
     this.markFirstAccountConnected(userId);
 
-    // Fetch and upsert accounts
-    const accountsResponse = await plaidClient.accountsGet({
-      access_token: plaidAccessToken,
+    await this.upsertAccounts({
+      userId,
+      connectionId,
+      accessToken: plaidAccessToken,
     });
-
-    for (const account of accountsResponse.data.accounts) {
-      await db
-        .insert(financialAccounts)
-        .values({
-          userId,
-          accountConnectionId: connectionId,
-          providerAccountId: account.account_id,
-          name: account.name,
-          officialName: account.official_name ?? null,
-          type: account.type,
-          subtype: account.subtype ?? null,
-          mask: account.mask ?? null,
-          currentBalance: account.balances.current?.toString() ?? null,
-          availableBalance: account.balances.available?.toString() ?? null,
-          isoCurrencyCode: account.balances.iso_currency_code ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [
-            financialAccounts.accountConnectionId,
-            financialAccounts.providerAccountId,
-          ],
-          set: {
-            name: account.name,
-            officialName: account.official_name ?? null,
-            type: account.type,
-            subtype: account.subtype ?? null,
-            mask: account.mask ?? null,
-            currentBalance: account.balances.current?.toString() ?? null,
-            availableBalance: account.balances.available?.toString() ?? null,
-            isoCurrencyCode: account.balances.iso_currency_code ?? null,
-            updatedAt: new Date(),
-          },
-        });
-    }
 
     // Create a sync job for transactions
     const [syncJob] = await db
@@ -161,6 +127,53 @@ class PlaidService {
     return { syncJobId: syncJob.id };
   }
 
+  /**
+   * Upsert every account Plaid reports for the Item, with fresh balances.
+   * Accounts can join an Item after it was linked — a replacement card arrives
+   * with a new account_id — and a transaction is only saved for an account
+   * that has a row here.
+   */
+  async upsertAccounts(params: {
+    userId: string;
+    connectionId: number;
+    accessToken: string;
+  }) {
+    const { userId, connectionId, accessToken } = params;
+
+    const accountsResponse = await plaidClient.accountsGet({
+      access_token: accessToken,
+    });
+
+    for (const account of accountsResponse.data.accounts) {
+      const fields = {
+        name: account.name,
+        officialName: account.official_name ?? null,
+        type: account.type,
+        subtype: account.subtype ?? null,
+        mask: account.mask ?? null,
+        currentBalance: account.balances.current?.toString() ?? null,
+        availableBalance: account.balances.available?.toString() ?? null,
+        isoCurrencyCode: account.balances.iso_currency_code ?? null,
+      };
+
+      await db
+        .insert(financialAccounts)
+        .values({
+          userId,
+          accountConnectionId: connectionId,
+          providerAccountId: account.account_id,
+          ...fields,
+        })
+        .onConflictDoUpdate({
+          target: [
+            financialAccounts.accountConnectionId,
+            financialAccounts.providerAccountId,
+          ],
+          set: { ...fields, updatedAt: new Date() },
+        });
+    }
+  }
+
   async syncTransactions(params: {
     connectionId: number;
     accessToken: string;
@@ -173,6 +186,24 @@ class PlaidService {
     waitForInitialPull?: boolean;
   }) {
     const { connectionId, accessToken, cursor, waitForInitialPull } = params;
+
+    const [connection] = await db
+      .select({ userId: accountConnections.userId })
+      .from(accountConnections)
+      .where(eq(accountConnections.id, connectionId))
+      .limit(1);
+
+    if (!connection) {
+      throw new Error(`Connection ${connectionId} not found`);
+    }
+
+    // Before reading transactions: /transactions/sync returns each one only
+    // once, so one for an account without a row yet would be lost for good.
+    await this.upsertAccounts({
+      userId: connection.userId,
+      connectionId,
+      accessToken,
+    });
 
     // Get accounts for this connection to map account IDs
     const accounts = await db
@@ -191,6 +222,7 @@ class PlaidService {
     let added = 0;
     let modified = 0;
     let removed = 0;
+    const skippedAccountIds = new Set<string>();
 
     const initialDelay = 5000;
     const maxDelay = 30000;
@@ -217,7 +249,10 @@ class PlaidService {
       // Process added transactions
       for (const tx of data.added) {
         const account = accountMap.get(tx.account_id);
-        if (!account) continue;
+        if (!account) {
+          skippedAccountIds.add(tx.account_id);
+          continue;
+        }
 
         await db
           .insert(transactions)
@@ -261,7 +296,10 @@ class PlaidService {
       // Process modified transactions
       for (const tx of data.modified) {
         const account = accountMap.get(tx.account_id);
-        if (!account) continue;
+        if (!account) {
+          skippedAccountIds.add(tx.account_id);
+          continue;
+        }
 
         await db
           .insert(transactions)
@@ -344,6 +382,12 @@ class PlaidService {
       break;
     }
 
+    if (skippedAccountIds.size > 0) {
+      console.warn(
+        `connection ${connectionId}: skipped transactions for unknown account(s) ${[...skippedAccountIds].join(", ")}`,
+      );
+    }
+
     // Update cursor on connection
     await db
       .update(accountConnections)
@@ -359,32 +403,6 @@ class PlaidService {
     );
 
     return { nextCursor, added, modified, removed, updateStatus };
-  }
-
-  async refreshBalances(
-    connectionId: number,
-    accessToken: string,
-  ): Promise<void> {
-    const accountsResponse = await plaidClient.accountsGet({
-      access_token: accessToken,
-    });
-
-    for (const account of accountsResponse.data.accounts) {
-      await db
-        .update(financialAccounts)
-        .set({
-          currentBalance: account.balances.current?.toString() ?? null,
-          availableBalance: account.balances.available?.toString() ?? null,
-          isoCurrencyCode: account.balances.iso_currency_code ?? null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(financialAccounts.accountConnectionId, connectionId),
-            eq(financialAccounts.providerAccountId, account.account_id),
-          ),
-        );
-    }
   }
 
   async getItemStatus(accessToken: string) {
