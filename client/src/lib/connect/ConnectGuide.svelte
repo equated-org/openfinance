@@ -152,23 +152,21 @@
   {/if}
 {/snippet}
 
-{#snippet tabTrigger(value: string, label: string, domain: string | null)}
+<!-- logo is the app's domain, for its logo, or an icon for generic entries. -->
+{#snippet tabTrigger(value: string, label: string, logo: string | typeof Terminal)}
   <Tabs.Trigger
     {value}
     class="flex shrink-0 items-center gap-2 px-2.5 py-2 text-sm font-medium text-[var(--text-muted)] border-b-2 border-transparent data-[state=active]:text-[var(--text)] data-[state=active]:border-[var(--text)] transition-colors cursor-pointer"
   >
-    {#if domain}
+    {#if typeof logo === "string"}
       <img
-        src="https://img.logo.dev/{domain}?token={logoDevKey}&size=64&format=png"
+        src="https://img.logo.dev/{logo}?token={logoDevKey}&size=64&format=png"
         alt={label}
         class="h-4 w-4"
       />
-    {:else if value === "muse"}
-      <MessageCircle class="h-4 w-4" />
-    {:else if value === "skill"}
-      <Sparkles class="h-4 w-4" />
     {:else}
-      <Terminal class="h-4 w-4" />
+      {@const Icon = logo}
+      <Icon class="h-4 w-4" />
     {/if}
     {label}
   </Tabs.Trigger>
@@ -214,9 +212,9 @@
     {@render tabTrigger("cursor", "Cursor", "cursor.com")}
     {@render tabTrigger("openclaw", "OpenClaw", "openclaw.ai")}
     {@render tabTrigger("grok", "Grok", "x.ai")}
-    {@render tabTrigger("muse", "Muse", null)}
-    {@render tabTrigger("skill", "Skill", null)}
-    {@render tabTrigger("legacy", "Legacy", null)}
+    {@render tabTrigger("muse", "Muse", MessageCircle)}
+    {@render tabTrigger("skill", "Skill", Sparkles)}
+    {@render tabTrigger("legacy", "Legacy", Terminal)}
   </Tabs.List>
 
   <Tabs.Content

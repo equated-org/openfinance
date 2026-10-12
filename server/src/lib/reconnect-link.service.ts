@@ -19,6 +19,7 @@ import {
 import { financialAccountService } from "./financial-account.service";
 import { plaidService } from "./sync/plaid.service";
 import { quilttService } from "./sync/quiltt.service";
+import { appUrl } from "./origins.js";
 
 export const RECONNECT_LINK_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -128,8 +129,6 @@ class ReconnectLinkService {
       tokenHash: hashToken(token),
       expiresAt,
     });
-
-    const appUrl = process.env.APP_URL || "http://localhost:6100";
 
     return {
       ok: true,

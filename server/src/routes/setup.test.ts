@@ -16,7 +16,8 @@ describe("GET /setup.md", () => {
     expect(guide).toContain(
       "claude mcp add --scope user --transport http openfinance http://localhost:3000/mcp",
     );
-    // The OpenClaw command must keep its own ${...} placeholder.
+    expect(guide).not.toContain("{{");
+    // OpenClaw fills this in from the gateway's environment, so it stays.
     expect(guide).toContain('"Bearer ${OPENFINANCE_API_KEY}"');
   });
 

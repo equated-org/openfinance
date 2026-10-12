@@ -8,7 +8,7 @@ import { appUrl } from "./origins.js";
 const PUBLIC_PATHS = new Set(["/mcp", "/setup.md"]);
 const PUBLIC_PATH_PREFIXES = ["/.well-known/oauth-", "/api/auth/mcp/"];
 
-export function isPublicProtocolPath(path: string): boolean {
+function isPublicProtocolPath(path: string): boolean {
   return (
     PUBLIC_PATHS.has(path) ||
     PUBLIC_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))

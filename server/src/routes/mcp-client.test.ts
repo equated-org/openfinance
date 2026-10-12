@@ -24,7 +24,12 @@ import {
 import authRoutes from "./auth";
 import mcpRoutes from "./mcp";
 import oauthMetadataRoutes from "./oauth-metadata";
-import { createSessionCookie } from "../tests/session";
+import { serverUrl } from "../lib/origins";
+import {
+  createSessionCookie,
+  decideConsent,
+  requestConsent,
+} from "../tests/oauth";
 
 // Connects with the MCP SDK's own client, the code Claude Code and many other
 // clients are built on, instead of hand-written requests. Its OAuth support
@@ -34,9 +39,7 @@ app.route("/api/auth", authRoutes);
 app.route("/.well-known", oauthMetadataRoutes);
 app.route("/mcp", mcpRoutes);
 
-const SERVER = "http://localhost:3000";
-const APP = "http://localhost:6100";
-const MCP_URL = new URL(`${SERVER}/mcp`);
+const MCP_URL = new URL(`${serverUrl}/mcp`);
 const REDIRECT_URI = "http://127.0.0.1:43123/callback";
 const TOOLS = [
   "create_reconnect_link",
@@ -92,25 +95,8 @@ class BrowserProvider implements OAuthClientProvider {
     return this.verifier;
   }
   async redirectToAuthorization(url: URL) {
-    const authorize = await app.request(url.toString(), {
-      headers: { Cookie: sessionCookie },
-    });
-    const consent = new URL(authorize.headers.get("Location")!);
-    expect(`${consent.origin}${consent.pathname}`).toBe(`${APP}/oauth/consent`);
-
-    const decision = await app.request(`${SERVER}/api/auth/oauth2/consent`, {
-      method: "POST",
-      headers: {
-        Cookie: sessionCookie,
-        Origin: APP,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        accept: true,
-        consent_code: consent.searchParams.get("consent_code"),
-      }),
-    });
-    const redirect = new URL((await decision.json()).redirectURI);
+    const consentCode = await requestConsent(app, url.href, sessionCookie);
+    const redirect = await decideConsent(app, consentCode, true, sessionCookie);
     this.code = redirect.searchParams.get("code");
   }
 }
@@ -136,7 +122,6 @@ describe("MCP SDK client against /mcp", () => {
   });
 
   afterAll(async () => {
-    await db.delete(oauthApplication).where(eq(oauthApplication.userId, userId));
     await db
       .delete(oauthApplication)
       .where(eq(oauthApplication.name, "SDK Test Client"));

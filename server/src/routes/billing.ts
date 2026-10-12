@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireSession, type AuthEnv } from "$lib/middleware";
 import { billingService } from "$lib/billing";
 import { PLAN_TYPES, type PlanType } from "@openfinance/shared";
+import { appUrl } from "../lib/origins.js";
 
 const billingRoutes = new Hono<AuthEnv>();
 
@@ -36,7 +37,6 @@ billingRoutes.post(
     const user = c.get("user");
     const { planType } = c.req.valid("json");
 
-    const appUrl = process.env.APP_URL!;
     // Stripe substitutes the real session id, which the client hands back to
     // /confirm-checkout so activation doesn't depend on webhook timing.
     const successUrl = `${appUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
@@ -135,7 +135,6 @@ billingRoutes.post("/create-portal", async (c) => {
     return c.json({ error: "No Stripe customer" }, 400);
   }
 
-  const appUrl = process.env.APP_URL!;
   const url = await billingService.createPortalSession(
     userPlan.stripeCustomerId,
     appUrl,

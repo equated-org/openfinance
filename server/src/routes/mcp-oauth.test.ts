@@ -8,7 +8,12 @@ import authRoutes from "./auth";
 import mcpRoutes from "./mcp";
 import oauthMetadataRoutes from "./oauth-metadata";
 import oauthRoutes from "./oauth";
-import { createSessionCookie } from "../tests/session";
+import { appUrl as APP, serverUrl as SERVER } from "../lib/origins";
+import {
+  createSessionCookie,
+  decideConsent,
+  requestConsent,
+} from "../tests/oauth";
 
 // The whole connector sign-in against the real better-auth instance: discovery,
 // client registration, authorize, consent, token exchange, then /mcp.
@@ -18,8 +23,6 @@ app.route("/api/oauth", oauthRoutes);
 app.route("/.well-known", oauthMetadataRoutes);
 app.route("/mcp", mcpRoutes);
 
-const SERVER = "http://localhost:3000";
-const APP = "http://localhost:6100";
 const REDIRECT_URI = "http://127.0.0.1:43123/callback";
 
 const userId = `test-oauth-${randomUUID().slice(0, 8)}`;
@@ -65,27 +68,12 @@ function listTools(accessToken: string) {
   });
 }
 
-// Signed in, the authorize request lands on the consent page with a code.
-async function consentCode(extra: Record<string, string> = {}) {
-  const res = await app.request(authorizeUrl(extra), {
-    headers: { Cookie: sessionCookie },
-  });
-  expect(res.status).toBe(302);
-  const location = new URL(res.headers.get("Location")!);
-  expect(`${location.origin}${location.pathname}`).toBe(`${APP}/oauth/consent`);
-  return location.searchParams.get("consent_code")!;
+function consentCode(extra: Record<string, string> = {}) {
+  return requestConsent(app, authorizeUrl(extra), sessionCookie);
 }
 
 function decide(code: string, accept: boolean) {
-  return app.request(`${SERVER}/api/auth/oauth2/consent`, {
-    method: "POST",
-    headers: {
-      Cookie: sessionCookie,
-      Origin: APP,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ accept, consent_code: code }),
-  });
+  return decideConsent(app, code, accept, sessionCookie);
 }
 
 describe("MCP OAuth sign-in", () => {
@@ -169,9 +157,7 @@ describe("MCP OAuth sign-in", () => {
   });
 
   it("issues tokens after approval that work at /mcp and refresh", async () => {
-    const approved = await decide(await consentCode(), true);
-    expect(approved.status).toBe(200);
-    const redirect = new URL((await approved.json()).redirectURI);
+    const redirect = await decide(await consentCode(), true);
     expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT_URI);
     expect(redirect.searchParams.get("state")).toBe("state-123");
 
@@ -207,9 +193,7 @@ describe("MCP OAuth sign-in", () => {
 
   it("rejects a code exchange without the PKCE verifier", async () => {
     const approved = await decide(await consentCode(), true);
-    const code = new URL((await approved.json()).redirectURI).searchParams.get(
-      "code",
-    )!;
+    const code = approved.searchParams.get("code")!;
     const res = await tokenRequest({
       grant_type: "authorization_code",
       code,
@@ -221,7 +205,6 @@ describe("MCP OAuth sign-in", () => {
 
   it("returns access_denied when the user declines", async () => {
     const declined = await decide(await consentCode(), false);
-    expect(declined.status).toBe(200);
-    expect((await declined.json()).redirectURI).toContain("error=access_denied");
+    expect(declined.searchParams.get("error")).toBe("access_denied");
   });
 });
