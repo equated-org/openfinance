@@ -3,6 +3,8 @@ export type AccountDisconnectedMetadata = {
   connectionId: number;
   institutionName: string;
   institutionUrl: string | null;
+  /** Missing on notifications stored before it was recorded. */
+  institutionLogoUrl?: string | null;
   errorMessage?: string;
 };
 
@@ -11,6 +13,8 @@ export type TransactionSyncMetadata = {
   connectionId: number;
   institutionName: string;
   institutionUrl: string | null;
+  /** Missing on notifications stored before it was recorded. */
+  institutionLogoUrl?: string | null;
   added: number;
   modified: number;
   removed: number;

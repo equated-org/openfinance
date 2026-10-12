@@ -109,10 +109,32 @@ describe("FinancialAccountService", () => {
       expect(checking).toBeDefined();
       expect(checking.institutionName).toBe("Test Bank");
       expect(checking.institutionUrl).toBe("https://testbank.com");
+      expect(checking.institutionLogoUrl).toBe("https://old-logo.png");
       expect(checking.currentBalance).toBe("5000.0000");
       expect(checking.provider).toBe("plaid");
       expect(checking.connectionId).toBe(connectionId);
       expect(checking.syncError).toBeNull();
+    });
+
+    // Plaid stores logos as base64, which would bloat every account row.
+    it("should leave out a registry logo that isn't an image URL", async () => {
+      await db
+        .update(institutionRegistry)
+        .set({ logo: "iVBORw0KGgoAAAANSUhEUgAAAAE=" })
+        .where(eq(institutionRegistry.id, registryId));
+      try {
+        const accounts =
+          await financialAccountService.getAccountsByUserId(testUserId);
+        expect(accounts.map((a) => a.institutionLogoUrl)).toEqual([
+          null,
+          null,
+        ]);
+      } finally {
+        await db
+          .update(institutionRegistry)
+          .set({ logo: "https://old-logo.png" })
+          .where(eq(institutionRegistry.id, registryId));
+      }
     });
 
     it("should return syncError when latest sync job has error status", async () => {

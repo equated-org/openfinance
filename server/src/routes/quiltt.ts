@@ -11,7 +11,6 @@ import { eq } from "drizzle-orm";
 const callbackSchema = z.object({
   connectionId: z.string(),
   profileId: z.string(),
-  institutionRegistryId: z.number().optional(),
 });
 
 const quilttRoutes = new Hono<AuthEnv>();
@@ -59,8 +58,7 @@ quilttRoutes.post(
   zValidator("json", callbackSchema),
   async (c) => {
     const authUser = c.get("user");
-    const { connectionId, profileId, institutionRegistryId } =
-      c.req.valid("json");
+    const { connectionId, profileId } = c.req.valid("json");
 
     // Check if this is a reconnection (existing connection)
     const [existingConn] = await db
@@ -101,7 +99,6 @@ quilttRoutes.post(
       userId: authUser.id,
       quilttConnectionId: connectionId,
       quilttProfileId: profileId,
-      institutionRegistryId: institutionRegistryId ?? null,
     });
 
     return c.json({ message: "Quiltt account connected successfully" });

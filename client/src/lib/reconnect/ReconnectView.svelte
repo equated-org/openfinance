@@ -58,6 +58,7 @@
 {#snippet logo()}
   <InstitutionLogo
     institutionUrl={link?.institutionUrl ?? null}
+    institutionLogoUrl={link?.institutionLogoUrl ?? null}
     institutionName={bank ?? undefined}
     size="lg"
     class="h-14 w-14 rounded-2xl border border-[var(--border)] bg-[var(--bg)]"

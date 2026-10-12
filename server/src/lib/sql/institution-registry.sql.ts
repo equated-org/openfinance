@@ -8,10 +8,13 @@ import {
   integer,
   index,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
- * Registry of all institutions from multiple providers (Plaid, MX, etc.)
- * This is the unified table that combines institution data from all sources.
+ * Registry of institutions from every provider. Plaid and MX rows mirror their
+ * catalogs and are what the picker searches. Quiltt rows are written when a
+ * connection is made, from the institution Quiltt reports, so connections can
+ * be named; they're never offered in search.
  */
 export const institutionRegistry = pgTable(
   "institution_registry",
@@ -25,7 +28,8 @@ export const institutionRegistry = pgTable(
     url: text("url"),
     countryCode: text("country_code").notNull(),
 
-    // Composite key for upserts: "plaid_{institutionId}" or "mx_{institutionCode}"
+    // Composite key for upserts: "plaid_{institutionId}", "mx_{institutionCode}"
+    // or "quiltt_{institutionId}"
     providerCompositeKey: text("provider_composite_key").unique(),
 
     // Provider-specific data stored as JSON
@@ -74,31 +78,6 @@ export const institutionRegistry = pgTable(
       logo?: string | null;
     } | null>(),
 
-    mastercardData: json("mastercard_data").$type<{
-      institutionId: string;
-      name: string;
-      voa: boolean;
-      voi: boolean;
-      stateAgg: boolean;
-      ach: boolean;
-      transAgg: boolean;
-      aha: boolean;
-      availBalance: boolean;
-      oauthEnabled: boolean;
-      status: string;
-      urlHomeApp: string | null;
-      urlLogonApp: string | null;
-      accountTypeDescription: string | null;
-      currency: string;
-      branding: {
-        logo: string | null;
-        alternateLogo: string | null;
-        icon: string | null;
-        primaryColor: string | null;
-        title: string | null;
-      } | null;
-    } | null>(),
-
     // Supported account types - standardized to Plaid's three-type system
     supportedAccountTypes: json("supported_account_types").$type<
       AccountType[] | null
@@ -123,6 +102,13 @@ export const institutionRegistry = pgTable(
     ),
   }),
 );
+
+/**
+ * The row's logo when it's an image URL, as on Quiltt rows, which have no
+ * homepage for logo.dev. Plaid's logos are base64 and stay out of account
+ * payloads.
+ */
+export const institutionLogoUrl = sql<string | null>`case when ${institutionRegistry.logo} like 'https://%' then ${institutionRegistry.logo} end`;
 
 export type InstitutionRegistry = typeof institutionRegistry.$inferSelect;
 export type NewInstitutionRegistry = typeof institutionRegistry.$inferInsert;

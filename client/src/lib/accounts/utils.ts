@@ -152,21 +152,37 @@ export function formatAccountType(
   return display.charAt(0).toUpperCase() + display.slice(1).replace(/_/g, " ");
 }
 
-export function getAccountLogoUrl(
+/**
+ * Logo URLs for an institution, best first: logo.dev by its homepage's
+ * domain, then the logo its provider reports (Quiltt's names no homepage).
+ * logo.dev 404s on a miss so the caller can try the next.
+ */
+export function getInstitutionLogoUrls(
   institutionUrl: string | null,
+  institutionLogoUrl: string | null,
   size: number = 64,
-): string | null {
+): string[] {
   const logoDevKey = import.meta.env.VITE_LOGO_DEV_PUBLISHABLE_KEY as
     | string
     | undefined;
+  const domain = homepageDomain(institutionUrl);
+  const urls: string[] = [];
+  if (logoDevKey && domain) {
+    urls.push(
+      `https://img.logo.dev/${domain}?token=${logoDevKey}&size=${size}&format=png&fallback=404`,
+    );
+  }
+  if (institutionLogoUrl) urls.push(institutionLogoUrl);
+  return urls;
+}
 
-  if (!logoDevKey || !institutionUrl) return null;
+function homepageDomain(institutionUrl: string | null): string | null {
+  if (!institutionUrl) return null;
   try {
     const url = institutionUrl.startsWith("http")
       ? institutionUrl
       : `https://${institutionUrl}`;
-    const domain = new URL(url).hostname;
-    return `https://img.logo.dev/${domain}?token=${logoDevKey}&size=${size}&format=png`;
+    return new URL(url).hostname;
   } catch {
     return null;
   }

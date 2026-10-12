@@ -1,6 +1,6 @@
 <script lang="ts">
   import InstitutionSearch from "./InstitutionSearch.svelte";
-  import type { InstitutionType, SyncProvider } from "@openfinance/shared";
+  import type { InstitutionType, CatalogProvider } from "@openfinance/shared";
   import { searchInstitutions, getTopInstitutions } from "./api";
 
   // === PROPS ===
@@ -9,16 +9,17 @@
     onClose?: () => void;
     onProviderSelect?: (
       institution: InstitutionType,
-      provider: SyncProvider,
+      provider: CatalogProvider,
     ) => void;
-    connectedInstitutionIds?: Set<string>;
+    /** Opens Quiltt's own search, for banks our catalogs don't carry. */
+    onSearchAll?: () => void;
   }
 
   let {
     isOpen = $bindable(false),
     onClose = () => {},
     onProviderSelect = () => {},
-    connectedInstitutionIds = new Set<string>(),
+    onSearchAll = () => {},
   }: Props = $props();
 
   // === STATE ===
@@ -87,17 +88,6 @@
     }, 300);
   }
 
-  function handleInstitutionSelect(institution: InstitutionType) {
-    // Single provider - determine which and fire onProviderSelect
-    if (institution.plaidData) {
-      onProviderSelect(institution, "plaid");
-    } else if (institution.mxData) {
-      onProviderSelect(institution, "mx");
-    } else if (institution.mastercardData) {
-      onProviderSelect(institution, "quiltt");
-    }
-  }
-
   function handleClose() {
     searchQuery = "";
     institutions = [];
@@ -111,9 +101,8 @@
   {institutions}
   {isSearching}
   {searchQuery}
-  {connectedInstitutionIds}
   onSearchInput={handleSearchInput}
-  onInstitutionSelect={handleInstitutionSelect}
   {onProviderSelect}
+  {onSearchAll}
   onClose={handleClose}
 />

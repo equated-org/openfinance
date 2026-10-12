@@ -201,6 +201,7 @@
                   >
                     <InstitutionLogo
                       institutionUrl={account.institutionUrl}
+                      institutionLogoUrl={account.institutionLogoUrl}
                       institutionName={account.institutionName}
                     />
                     <span class="text-xs text-[var(--text-muted)] truncate">

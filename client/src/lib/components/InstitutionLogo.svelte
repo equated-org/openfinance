@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { InstitutionType } from "@openfinance/shared";
-  import { getAccountLogoUrl } from "$lib/accounts/utils";
+  import { getInstitutionLogoUrls } from "$lib/accounts/utils";
   import { cn } from "$lib/utils";
 
   interface Props {
@@ -8,6 +8,8 @@
     institution?: InstitutionType;
     /** String mode: pass url + name (for accounts, transactions, notifications) */
     institutionUrl?: string | null;
+    /** String mode: the provider's own logo, for when logo.dev has none */
+    institutionLogoUrl?: string | null;
     institutionName?: string;
     size?: "sm" | "md" | "lg";
     class?: string;
@@ -22,6 +24,7 @@
   let {
     institution,
     institutionUrl,
+    institutionLogoUrl,
     institutionName,
     size = "sm",
     class: className,
@@ -31,32 +34,28 @@
 
   const name = $derived(institution?.name ?? institutionName ?? "?");
 
-  // Object mode: base64 logo from Plaid
-  const base64Src = $derived.by(() => {
-    if (!institution?.logo) return null;
-    const logo = institution.logo;
-    if (
-      logo.startsWith("http://") ||
-      logo.startsWith("https://") ||
-      logo.startsWith("data:")
-    ) {
-      return null;
-    }
-    return `data:image/png;base64,${logo}`;
-  });
-
-  // Object mode: logoUrl (e.g. MX medium logo)
-  const objectLogoUrl = $derived(institution?.logoUrl ?? null);
-
-  // String mode: logo.dev URL
-  const logoDevUrl = $derived(
-    !institution
-      ? getAccountLogoUrl(institutionUrl ?? null, config.apiSize)
-      : null,
+  // Logos to try, best first. Object mode: Plaid's base64 logo, then MX's
+  // logo URL. String mode: logo.dev by homepage, then the provider's logo. One
+  // that fails to load moves on to the next, and past the last to the letter.
+  const candidates = $derived(
+    (institution
+      ? [base64Logo(institution.logo), institution.logoUrl ?? null]
+      : getInstitutionLogoUrls(
+          institutionUrl ?? null,
+          institutionLogoUrl ?? null,
+          config.apiSize,
+        )
+    ).filter((src): src is string => !!src),
+  );
+  let missed = $state<string[]>([]);
+  const imgSrc = $derived(
+    candidates.find((src) => !missed.includes(src)) ?? null,
   );
 
-  // Final resolved image src: base64 → logoUrl → logo.dev
-  const imgSrc = $derived(base64Src ?? objectLogoUrl ?? logoDevUrl);
+  function base64Logo(logo: string | null | undefined): string | null {
+    if (!logo || /^(https?:\/\/|data:)/.test(logo)) return null;
+    return `data:image/png;base64,${logo}`;
+  }
 
   const primaryColor = $derived(institution?.primaryColor ?? null);
 </script>
@@ -73,7 +72,14 @@
     : undefined}
 >
   {#if imgSrc}
-    <img src={imgSrc} alt={name} class="w-full h-full object-contain" />
+    <img
+      src={imgSrc}
+      alt={name}
+      class="w-full h-full object-contain"
+      onerror={() => {
+        if (imgSrc) missed = [...missed, imgSrc];
+      }}
+    />
   {:else}
     <span
       class={cn(

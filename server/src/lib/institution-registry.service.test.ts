@@ -1,24 +1,33 @@
 import { randomUUID } from "crypto";
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
 import { inArray } from "drizzle-orm";
 import { db } from "../db";
 import { institutionRegistry } from "../schema";
 
+const mx = vi.hoisted(() => ({ configured: false }));
 vi.mock("./sync/mx.client", () => ({
-  isMxConfigured: () => false,
+  isMxConfigured: () => mx.configured,
 }));
 
 const { institutionRegistryService } =
   await import("./institution-registry.service");
 
-describe("InstitutionRegistryService.searchInstitutions (MX not configured)", () => {
+describe("InstitutionRegistryService", () => {
   const suffix = randomUUID().slice(0, 8);
-  // Shared substring (tag) so one query matches all three; distinct prefixes
-  // so InstitutionMatcher.deduplicateInstitutions keeps them as separate rows.
+  // Each name is searched on its own: a query matching several rows lets
+  // InstitutionMatcher merge them, and these names differ only by prefix.
   const tag = `ZzsrchTag${suffix}`;
   const plaidName = `AlphaBank ${tag}`;
-  const mcName = `BetaCredit ${tag}`;
   const mxName = `GammaSavings ${tag}`;
+  const quilttName = `BetaCredit ${tag}`;
   let insertedIds: number[] = [];
 
   beforeAll(async () => {
@@ -36,35 +45,6 @@ describe("InstitutionRegistryService.searchInstitutions (MX not configured)", ()
             products: ["transactions"],
             routingNumbers: [],
           },
-          mxData: null,
-          mastercardData: null,
-          supportedAccountTypes: ["depository"],
-          lastSynced: new Date(),
-        },
-        {
-          name: mcName,
-          countryCode: "US",
-          providerCompositeKey: `mastercard_${suffix}_mc`,
-          plaidData: null,
-          mxData: null,
-          mastercardData: {
-            institutionId: `${suffix}_mc`,
-            name: mcName,
-            voa: true,
-            voi: true,
-            stateAgg: true,
-            ach: true,
-            transAgg: true,
-            aha: true,
-            availBalance: true,
-            oauthEnabled: true,
-            status: "online",
-            urlHomeApp: null,
-            urlLogonApp: null,
-            accountTypeDescription: "Banking",
-            currency: "USD",
-            branding: null,
-          },
           supportedAccountTypes: ["depository"],
           lastSynced: new Date(),
         },
@@ -72,18 +52,49 @@ describe("InstitutionRegistryService.searchInstitutions (MX not configured)", ()
           name: mxName,
           countryCode: "US",
           providerCompositeKey: `mx_${suffix}_mx`,
-          plaidData: null,
           mxData: {
             institutionCode: `${suffix}_mx`,
             name: mxName,
           },
-          mastercardData: null,
           supportedAccountTypes: ["depository"],
+          lastSynced: new Date(),
+        },
+        // The shape QuilttService writes when a connection is made.
+        {
+          name: quilttName,
+          logo: "https://cdn.quiltt.io/institutions/logo.png",
+          countryCode: "",
+          providerCompositeKey: `quiltt_inst_${suffix}`,
+          lastSynced: new Date(),
+        },
+        // A top-list bank in both catalogs.
+        {
+          name: "Chase",
+          countryCode: "US",
+          providerCompositeKey: "plaid_ins_56",
+          plaidData: {
+            institutionId: "ins_56",
+            countryCodes: ["US"],
+            oauth: true,
+            products: ["transactions"],
+            routingNumbers: [],
+          },
+          lastSynced: new Date(),
+        },
+        {
+          name: "Chase",
+          countryCode: "US",
+          providerCompositeKey: "mx_chase",
+          mxData: { institutionCode: "chase", name: "Chase" },
           lastSynced: new Date(),
         },
       ])
       .returning({ id: institutionRegistry.id });
     insertedIds = rows.map((r) => r.id);
+  });
+
+  afterEach(() => {
+    mx.configured = false;
   });
 
   afterAll(async () => {
@@ -94,35 +105,40 @@ describe("InstitutionRegistryService.searchInstitutions (MX not configured)", ()
     }
   });
 
-  it("returns plaid and mastercard rows, excludes mx-only", async () => {
+  async function searchNames(query: string) {
     const results = await institutionRegistryService.searchInstitutions({
-      query: tag,
+      query,
     });
+    return results.map((r) => r.name);
+  }
 
-    const names = results.map((r) => r.name);
-    expect(names).toContain(plaidName);
-    expect(names).toContain(mcName);
-    expect(names).not.toContain(mxName);
+  it("offers Plaid rows, and MX rows only when MX is configured", async () => {
+    expect(await searchNames(plaidName)).toEqual([plaidName]);
+    expect(await searchNames(mxName)).toEqual([]);
+
+    mx.configured = true;
+    expect(await searchNames(mxName)).toEqual([mxName]);
   });
 
-  it("returns the mastercard-only row when searching for its specific name", async () => {
-    const results = await institutionRegistryService.searchInstitutions({
-      query: mcName,
-    });
-    expect(results.map((r) => r.name)).toContain(mcName);
+  it("never offers a row written for a Quiltt connection", async () => {
+    expect(await searchNames(quilttName)).toEqual([]);
+
+    mx.configured = true;
+    expect(await searchNames(quilttName)).toEqual([]);
   });
 
-  it("returns the plaid-only row when searching for its specific name", async () => {
-    const results = await institutionRegistryService.searchInstitutions({
-      query: plaidName,
+  it("leaves MX out of the top list when MX isn't configured", async () => {
+    const top = await institutionRegistryService.getTopInstitutions({
+      country: "US",
     });
-    expect(results.map((r) => r.name)).toContain(plaidName);
-  });
+    expect(top.find((i) => i.name === "Chase")?.providers).toEqual(["plaid"]);
 
-  it("does not return the mx-only row when searching for its specific name", async () => {
-    const results = await institutionRegistryService.searchInstitutions({
-      query: mxName,
+    mx.configured = true;
+    const merged = await institutionRegistryService.getTopInstitutions({
+      country: "US",
     });
-    expect(results.map((r) => r.name)).not.toContain(mxName);
+    expect(merged.find((i) => i.name === "Chase")?.providers?.sort()).toEqual(
+      ["mx", "plaid"],
+    );
   });
 });

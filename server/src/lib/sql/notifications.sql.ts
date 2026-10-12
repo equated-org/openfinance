@@ -6,31 +6,17 @@ import {
   jsonb,
   index,
 } from "drizzle-orm/pg-core";
+import type { NotificationMetadata } from "@openfinance/shared";
 import { user } from "./auth.sql";
 
 // ==================== Metadata Types ====================
 
-export type AccountDisconnectedMetadata = {
-  type: "account_disconnected";
-  connectionId: number;
-  institutionName: string;
-  institutionUrl: string | null;
-  errorMessage?: string;
-};
-
-export type TransactionSyncMetadata = {
-  type: "transaction_sync";
-  connectionId: number;
-  institutionName: string;
-  institutionUrl: string | null;
-  added: number;
-  modified: number;
-  removed: number;
-};
-
-export type NotificationMetadata =
-  | AccountDisconnectedMetadata
-  | TransactionSyncMetadata;
+// The API returns metadata as stored, so the shared contract is its type.
+export type {
+  AccountDisconnectedMetadata,
+  TransactionSyncMetadata,
+  NotificationMetadata,
+} from "@openfinance/shared";
 
 // ==================== Table ====================
 

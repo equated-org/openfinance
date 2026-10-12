@@ -24,7 +24,6 @@ function createTestInstitution(
         : `test_${id}`,
     plaidData,
     mxData,
-    mastercardData: null,
     supportedAccountTypes: ["depository", "credit"],
     isTopInstitution: false,
     countryRank: null,

@@ -96,6 +96,10 @@
     return "institutionUrl" in meta ? meta.institutionUrl : null;
   }
 
+  function getInstitutionLogoUrl(n: ApiNotification): string | null {
+    return n.metadata.institutionLogoUrl ?? null;
+  }
+
   function getInstitutionName(n: ApiNotification): string {
     return n.metadata.institutionName;
   }
@@ -137,6 +141,7 @@
         <div class="flex items-center gap-3 py-3 px-1">
           <InstitutionLogo
             institutionUrl={getInstitutionUrl(n)}
+            institutionLogoUrl={getInstitutionLogoUrl(n)}
             institutionName={getInstitutionName(n)}
             size="md"
           />

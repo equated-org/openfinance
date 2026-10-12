@@ -52,6 +52,7 @@
   <div class="flex items-center gap-2.5">
     <InstitutionLogo
       institutionUrl={account.institutionUrl}
+      institutionLogoUrl={account.institutionLogoUrl}
       institutionName={account.institutionName}
       size="md"
       class="rounded-full bg-[var(--bg)]"

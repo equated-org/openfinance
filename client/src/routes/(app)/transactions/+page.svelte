@@ -84,6 +84,7 @@
               {#if selectedAccount}
                 <InstitutionLogo
                   institutionUrl={selectedAccount.institutionUrl}
+                  institutionLogoUrl={selectedAccount.institutionLogoUrl}
                   institutionName={selectedAccount.institutionName}
                 />
               {/if}
@@ -105,6 +106,7 @@
               >
                 <InstitutionLogo
                   institutionUrl={account.institutionUrl}
+                  institutionLogoUrl={account.institutionLogoUrl}
                   institutionName={account.institutionName}
                 />
                 <span>{account.name}</span>

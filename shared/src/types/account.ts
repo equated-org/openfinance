@@ -10,6 +10,9 @@ export interface ConnectedAccount {
   isoCurrencyCode: string | null;
   institutionName: string;
   institutionUrl: string | null;
+  /** The institution's own logo image, for when there's no `institutionUrl`
+   *  to look one up by. Banks connected through Quiltt have only this. */
+  institutionLogoUrl: string | null;
   syncError: { message: string; lastFailedAt: string } | null;
   isSyncing: boolean;
   connectionId: number;
