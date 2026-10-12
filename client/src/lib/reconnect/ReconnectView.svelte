@@ -158,19 +158,9 @@
       <h1 class="mt-6 text-xl font-semibold text-[var(--text)]">
         {bank ?? "Your bank"} is connected
       </h1>
-      <div
-        class="mt-4 inline-flex items-center gap-2 rounded-full bg-[var(--bg-muted)] px-3 py-1.5 text-xs text-[var(--text-muted)]"
-      >
-        {#if state === "syncing"}
-          <Spinner class="size-3.5" />
-          Syncing transactions in the background
-        {:else}
-          <Check class="h-3.5 w-3.5" strokeWidth={2.5} />
-          Transactions up to date
-        {/if}
-      </div>
-      <p class="mt-4 text-sm leading-relaxed text-[var(--text-muted)]">
-        You can close this page.
+      <p class="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
+        You can close this page. New transactions will appear as {bank ??
+          "your bank"} sends them.
       </p>
     {:else if state === "failed"}
       {@render badgedLogo("warn")}
