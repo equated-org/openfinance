@@ -34,41 +34,28 @@
 
   const name = $derived(institution?.name ?? institutionName ?? "?");
 
-  // Object mode: base64 logo from Plaid
-  const base64Src = $derived.by(() => {
-    if (!institution?.logo) return null;
-    const logo = institution.logo;
-    if (
-      logo.startsWith("http://") ||
-      logo.startsWith("https://") ||
-      logo.startsWith("data:")
-    ) {
-      return null;
-    }
-    return `data:image/png;base64,${logo}`;
-  });
-
-  // Object mode: logoUrl (e.g. MX medium logo)
-  const objectLogoUrl = $derived(institution?.logoUrl ?? null);
-
-  // String mode: logo.dev by homepage, then the provider's logo. A logo that
-  // fails to load moves on to the next, and past the last to the letter below.
-  const stringLogoUrls = $derived(
-    !institution
-      ? getInstitutionLogoUrls(
+  // Logos to try, best first. Object mode: Plaid's base64 logo, then MX's
+  // logo URL. String mode: logo.dev by homepage, then the provider's logo. One
+  // that fails to load moves on to the next, and past the last to the letter.
+  const candidates = $derived(
+    (institution
+      ? [base64Logo(institution.logo), institution.logoUrl ?? null]
+      : getInstitutionLogoUrls(
           institutionUrl ?? null,
           institutionLogoUrl ?? null,
           config.apiSize,
         )
-      : [],
+    ).filter((src): src is string => !!src),
   );
   let missed = $state<string[]>([]);
-  const stringLogoUrl = $derived(
-    stringLogoUrls.find((src) => !missed.includes(src)) ?? null,
+  const imgSrc = $derived(
+    candidates.find((src) => !missed.includes(src)) ?? null,
   );
 
-  // Final resolved image src: base64 → logoUrl → string mode's logo
-  const imgSrc = $derived(base64Src ?? objectLogoUrl ?? stringLogoUrl);
+  function base64Logo(logo: string | null | undefined): string | null {
+    if (!logo || /^(https?:\/\/|data:)/.test(logo)) return null;
+    return `data:image/png;base64,${logo}`;
+  }
 
   const primaryColor = $derived(institution?.primaryColor ?? null);
 </script>
@@ -90,7 +77,7 @@
       alt={name}
       class="w-full h-full object-contain"
       onerror={() => {
-        if (stringLogoUrl) missed = [...missed, stringLogoUrl];
+        if (imgSrc) missed = [...missed, imgSrc];
       }}
     />
   {:else}

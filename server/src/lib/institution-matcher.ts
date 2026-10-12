@@ -297,18 +297,6 @@ export class InstitutionMatcher {
   public static deduplicateInstitutions(
     institutions: InstitutionRegistry[],
   ): MergedInstitution[] {
-    if (institutions.length <= 1) {
-      return institutions.map((inst) => ({
-        ...inst,
-        providers: [
-          ...(inst.plaidData ? ["plaid" as const] : []),
-          ...(inst.mxData ? ["mx" as const] : []),
-        ] as CatalogProvider[],
-        matchConfidence: 1.0,
-        originalInstitutions: [inst],
-      }));
-    }
-
     const n = institutions.length;
     const uf = new UnionFind(n);
 
@@ -330,13 +318,9 @@ export class InstitutionMatcher {
       const insts = indices.map((i) => institutions[i]);
 
       if (insts.length === 1) {
-        const inst = insts[0];
         return {
-          ...inst,
-          providers: [
-            ...(inst.plaidData ? ["plaid" as const] : []),
-            ...(inst.mxData ? ["mx" as const] : []),
-          ] as CatalogProvider[],
+          ...insts[0],
+          providers: providersOf(insts[0]),
           matchConfidence: 1.0,
           originalInstitutions: insts,
         };
@@ -349,20 +333,9 @@ export class InstitutionMatcher {
           : best,
       );
 
-      const providers: CatalogProvider[] = [];
-      let plaidData = null;
-      let mxData = null;
-
-      for (const inst of insts) {
-        if (inst.plaidData && !providers.includes("plaid")) {
-          providers.push("plaid");
-          plaidData = plaidData || inst.plaidData;
-        }
-        if (inst.mxData && !providers.includes("mx")) {
-          providers.push("mx");
-          mxData = mxData || inst.mxData;
-        }
-      }
+      const providers = [...new Set(insts.flatMap(providersOf))];
+      const plaidData = insts.find((i) => i.plaidData)?.plaidData ?? null;
+      const mxData = insts.find((i) => i.mxData)?.mxData ?? null;
 
       const allSupportedTypes = insts
         .map((i) => i.supportedAccountTypes)
@@ -403,6 +376,14 @@ export class InstitutionMatcher {
       };
     });
   }
+}
+
+/** The catalogs a registry row can be connected through. */
+function providersOf(inst: InstitutionRegistry): CatalogProvider[] {
+  return [
+    ...(inst.plaidData ? (["plaid"] as const) : []),
+    ...(inst.mxData ? (["mx"] as const) : []),
+  ];
 }
 
 class UnionFind {

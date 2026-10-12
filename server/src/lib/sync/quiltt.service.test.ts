@@ -505,7 +505,11 @@ describe("QuilttService.connectAndPerformInitialSync", () => {
   /** Connects through Quiltt and returns the connection's registry id. */
   async function connect(
     quilttConnectionId: string,
-    reported: typeof institution | null = institution,
+    reported: {
+      id: string;
+      name: string;
+      logo?: { url: string } | null;
+    } | null = institution,
   ) {
     vi.spyOn(quilttService, "getConnection").mockResolvedValue({
       id: quilttConnectionId,
@@ -565,6 +569,20 @@ describe("QuilttService.connectAndPerformInitialSync", () => {
     });
 
     expect(await connect(quilttConnectionId)).toBe(await quilttRowId());
+  });
+
+  it("keeps the last known logo when Quiltt reports none", async () => {
+    const quilttConnectionId = `conn_nologo_${suffix}`;
+    await connect(quilttConnectionId);
+    await connect(quilttConnectionId, { ...institution, logo: null });
+
+    const [row] = await db
+      .select({ logo: institutionRegistry.logo })
+      .from(institutionRegistry)
+      .where(
+        eq(institutionRegistry.providerCompositeKey, `quiltt_${institution.id}`),
+      );
+    expect(row.logo).toBe(institution.logo.url);
   });
 
   it("keeps a connection's institution when Quiltt reports none", async () => {

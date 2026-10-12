@@ -471,7 +471,8 @@ class QuilttService {
         target: institutionRegistry.providerCompositeKey,
         set: {
           name: institution.name,
-          logo,
+          // A sync that comes back without a logo keeps the last one known.
+          logo: sql`coalesce(excluded.logo, ${institutionRegistry.logo})`,
           lastSynced: new Date(),
           updatedAt: new Date(),
         },

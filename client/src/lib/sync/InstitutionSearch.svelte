@@ -58,7 +58,6 @@
     institutions: InstitutionType[];
     isSearching: boolean;
     searchQuery: string;
-    connectedInstitutionIds: Set<string>;
     onSearchInput: (query: string) => void;
     onProviderSelect: (
       institution: InstitutionType,
@@ -74,7 +73,6 @@
     institutions,
     isSearching,
     searchQuery,
-    connectedInstitutionIds,
     onSearchInput,
     onProviderSelect,
     onSearchAll,
@@ -86,16 +84,6 @@
   let selectedInstitution = $state<InstitutionType | null>(null);
 
   // === HELPERS ===
-
-  function isInstitutionConnected(institution: InstitutionType): boolean {
-    if (institution.plaidData?.institutionId) {
-      return connectedInstitutionIds.has(institution.plaidData.institutionId);
-    }
-    if (institution.mxData?.institutionCode) {
-      return connectedInstitutionIds.has(institution.mxData.institutionCode);
-    }
-    return false;
-  }
 
   function getProviderDisplayInfo(institution: InstitutionType) {
     const providerNames = institution.providers.map(
@@ -113,108 +101,46 @@
     return { hasMultipleProviders, providerNames, tooltipText };
   }
 
-  function getProviderStatus(institution: InstitutionType) {
-    const plaidHealth = institution.plaidData?.connectionHealth;
-    const loginSuccessRate = plaidHealth?.item_logins?.breakdown?.success ?? 1;
-    const txnSuccessRate =
-      plaidHealth?.transactions_updates?.breakdown?.success ?? 1;
+  /**
+   * The chooser's options, best first. It only opens for a bank both catalogs
+   * carry, and MX leads once Plaid's success rates for the bank slip.
+   */
+  function getProviderList(institution: InstitutionType) {
+    const health = institution.plaidData?.connectionHealth;
+    const plaidSuccess = Math.min(
+      health?.item_logins?.breakdown?.success ?? 1,
+      health?.transactions_updates?.breakdown?.success ?? 1,
+    );
+    const plaidHasIssues = plaidSuccess < PLAID_DISABLE_THRESHOLD;
+    const plaidDegraded = plaidSuccess < PLAID_WARNING_THRESHOLD;
 
-    const loginDisabled = loginSuccessRate < PLAID_DISABLE_THRESHOLD;
-    const txnDisabled = txnSuccessRate < PLAID_DISABLE_THRESHOLD;
-    const plaidDisabled = loginDisabled || txnDisabled;
-
-    const loginWarning =
-      loginSuccessRate < PLAID_WARNING_THRESHOLD && !loginDisabled;
-    const txnWarning = txnSuccessRate < PLAID_WARNING_THRESHOLD && !txnDisabled;
-    const plaidHasWarning = loginWarning || txnWarning;
-
-    let plaidIssueDescription = "";
-    if (plaidDisabled) {
-      plaidIssueDescription =
+    let plaidDescription =
+      "2 years of transaction history. Single authentication.";
+    if (plaidHasIssues) {
+      plaidDescription =
         "Some users experience connection issues. May be slower to connect.";
-    } else if (plaidHasWarning) {
-      plaidIssueDescription =
+    } else if (plaidDegraded) {
+      plaidDescription =
         "Generally reliable, but some issues have been reported.";
     }
 
-    return {
-      plaid: {
-        available: !!institution.plaidData,
-        hasIssues: plaidDisabled,
-        hasWarning: plaidHasWarning || plaidDisabled,
-        issueDescription: plaidIssueDescription,
-        recommended: isProviderRecommended(
-          "plaid",
-          institution,
-          plaidDisabled,
-          plaidHasWarning,
-        ),
-      },
-      mx: {
-        available: !!institution.mxData,
-        hasIssues: false,
-        hasWarning: false,
-        recommended: isProviderRecommended(
-          "mx",
-          institution,
-          plaidDisabled,
-          plaidHasWarning,
-        ),
-      },
+    const plaid = {
+      type: "plaid" as const,
+      name: "Plaid",
+      hasIssues: plaidHasIssues,
+      hasWarning: plaidDegraded,
+      description: plaidDescription,
     };
-  }
-
-  function isProviderRecommended(
-    provider: CatalogProvider,
-    institution: InstitutionType,
-    plaidDisabled: boolean,
-    plaidHasWarning: boolean,
-  ): boolean {
-    switch (provider) {
-      case "plaid":
-        return (
-          (!!institution.plaidData && !plaidDisabled && !plaidHasWarning) ||
-          (!!institution.plaidData && !institution.mxData)
-        );
-      case "mx":
-        return (
-          (!!institution.mxData && (plaidDisabled || plaidHasWarning)) ||
-          (!!institution.mxData && !institution.plaidData)
-        );
-    }
-  }
-
-  function getProviderList(institution: InstitutionType) {
-    const status = getProviderStatus(institution);
-
-    const providers = [
-      {
-        type: "plaid" as const,
-        ...status.plaid,
-        name: "Plaid",
-        description:
-          status.plaid.issueDescription ||
-          "2 years of transaction history. Single authentication.",
-      },
-      {
-        type: "mx" as const,
-        ...status.mx,
-        name: "MX",
-        description: status.mx.recommended
-          ? "Most stable connection available"
-          : "Requires 2FA twice but very reliable",
-      },
-    ]
-      .filter((p) => p.available)
-      .sort((a, b) => {
-        if (a.recommended && !b.recommended) return -1;
-        if (!a.recommended && b.recommended) return 1;
-        if (!a.hasIssues && b.hasIssues) return -1;
-        if (a.hasIssues && !b.hasIssues) return 1;
-        return 0;
-      });
-
-    return providers;
+    const mx = {
+      type: "mx" as const,
+      name: "MX",
+      hasIssues: false,
+      hasWarning: false,
+      description: plaidDegraded
+        ? "Most stable connection available"
+        : "Requires 2FA twice but very reliable",
+    };
+    return plaidDegraded ? [mx, plaid] : [plaid, mx];
   }
 
   // === ACTIONS ===
@@ -393,7 +319,6 @@
             <div class="space-y-1 w-full">
               <TooltipProvider>
                 {#each institutions as institution}
-                  {@const isConnected = isInstitutionConnected(institution)}
                   {@const displayInfo = getProviderDisplayInfo(institution)}
                   <div
                     class="flex items-start gap-2 p-2 rounded-lg transition-colors w-full hover:bg-[var(--bg-muted)] cursor-pointer"
@@ -421,13 +346,7 @@
                     </div>
 
                     <div class="flex gap-1 flex-shrink-0 items-center">
-                      {#if isConnected}
-                        <span
-                          class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium"
-                        >
-                          Connected
-                        </span>
-                      {:else if displayInfo.hasMultipleProviders}
+                      {#if displayInfo.hasMultipleProviders}
                         <Tooltip>
                           <TooltipTrigger>
                             <span class="text-xs text-[var(--text-muted)]">

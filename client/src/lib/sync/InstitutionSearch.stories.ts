@@ -126,7 +126,6 @@ export const Default: Story = {
     institutions: mockInstitutions,
     isSearching: false,
     searchQuery: "",
-    connectedInstitutionIds: new Set<string>(),
     onSearchInput: (query: string) => console.log("Search:", query),
     onProviderSelect: (inst: InstitutionType, provider: string) =>
       console.log("Provider:", inst.name, provider),
@@ -150,13 +149,6 @@ export const WithSearchQuery: Story = {
     institutions: mockInstitutions.filter((i) =>
       i.name.toLowerCase().includes("chase"),
     ),
-  },
-};
-
-export const WithConnectedInstitutions: Story = {
-  args: {
-    ...Default.args,
-    connectedInstitutionIds: new Set(["ins_3", "wells_fargo"]),
   },
 };
 

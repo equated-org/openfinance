@@ -13,7 +13,6 @@
     ) => void;
     /** Opens Quiltt's own search, for banks our catalogs don't carry. */
     onSearchAll?: () => void;
-    connectedInstitutionIds?: Set<string>;
   }
 
   let {
@@ -21,7 +20,6 @@
     onClose = () => {},
     onProviderSelect = () => {},
     onSearchAll = () => {},
-    connectedInstitutionIds = new Set<string>(),
   }: Props = $props();
 
   // === STATE ===
@@ -103,7 +101,6 @@
   {institutions}
   {isSearching}
   {searchQuery}
-  {connectedInstitutionIds}
   onSearchInput={handleSearchInput}
   {onProviderSelect}
   {onSearchAll}
