@@ -111,9 +111,9 @@ All query parameters are **optional**. Only include the ones you need.
 
 Run one validated SQL SELECT (maximum 2000 characters) against the unqualified `txns` relation for aggregations, grouping, and analysis. Only the caller's transactions are available; deleted transactions and hidden accounts are excluded. The query runs read-only with a 5-second timeout and a maximum of 1000 result rows. Aggregations still use all matching input rows, and smaller LIMITs and OFFSETs are preserved.
 
-Filtering, DISTINCT, grouping, HAVING, sorting, subqueries, joins, and UNION/UNION ALL are supported. Every table source must be `txns` or a derived SELECT whose sources are `txns`. Other tables and schemas, caller-defined CTEs, window functions, SELECT INTO, locking clauses, table functions, transaction commands, and multiple statements are rejected.
+Filtering, DISTINCT, grouping, HAVING, sorting, subqueries (including EXISTS), joins, and UNION/UNION ALL are supported, as are aggregate `FILTER (WHERE ...)` and `COUNT(DISTINCT ...)`. Every table source must be `txns` or a derived SELECT whose sources are `txns`. Other tables and schemas, caller-defined CTEs, window functions, SELECT INTO, locking clauses, table functions, transaction commands, and multiple statements are rejected.
 
-Approved functions: COUNT, SUM, AVG, MIN, MAX, ABS, ROUND, CEIL, CEILING, FLOOR, LOWER, UPPER, LENGTH, TRIM, BTRIM, LTRIM, RTRIM, SUBSTRING, SUBSTR, REPLACE, DATE_TRUNC, DATE_PART, EXTRACT, TO_CHAR. CASE, COALESCE, NULLIF, GREATEST, LEAST, CURRENT_DATE, and CURRENT_TIMESTAMP are also supported. Casts are limited to built-in boolean, integer, numeric, floating-point, text, date, timestamp, and interval types. Arithmetic, comparisons, LIKE/ILIKE, IN, BETWEEN, and NULL/boolean tests are supported; custom operators, regex operators, COLLATE, and unlisted syntax are rejected. Function and type names may be unqualified or qualified with `pg_catalog`.
+Approved functions: COUNT, SUM, AVG, MIN, MAX, ABS, ROUND, CEIL, CEILING, FLOOR, LOWER, UPPER, LENGTH, TRIM, BTRIM, LTRIM, RTRIM, SUBSTRING, SUBSTR, REPLACE, DATE_TRUNC, DATE_PART, EXTRACT, TO_CHAR. CASE, COALESCE, NULLIF, GREATEST, LEAST, CURRENT_DATE, and CURRENT_TIMESTAMP are also supported. Other functions are rejected, including `NOW()` (use `CURRENT_TIMESTAMP`) and `STRING_AGG`. Casts are limited to built-in boolean, integer, numeric, floating-point, text, date, timestamp, and interval types. Arithmetic, comparisons, `||`, LIKE/ILIKE, IN, BETWEEN, and NULL/boolean tests are supported; custom operators, regex operators, arrays (including `ANY` over an array), COLLATE, and unlisted syntax are rejected. Function and type names may be unqualified or qualified with `pg_catalog`.
 
 ```bash
 curl -s -X POST "$BASE_URL/api/transactions/query" \
@@ -125,28 +125,64 @@ curl -s -X POST "$BASE_URL/api/transactions/query" \
 
 ### `txns` CTE columns
 
-`id`, `name`, `amount` (numeric), `date`, `authorized_date`, `merchant_name`, `pending`, `iso_currency_code`, `account_id`, `status`, `created_at`, `updated_at`
+`id`, `name`, `amount` (numeric), `date` (timestamp), `authorized_date`, `merchant_name`, `pending`, `iso_currency_code`, `account_id`, `status`, `created_at`, `updated_at`
 
 Note: SQL column names use `snake_case` (e.g. `merchant_name`), while the REST API returns `camelCase` (e.g. `merchantName`).
 
+### Before totaling
+
+- **Sign:** a positive `amount` is money out (purchases, bills, transfers out) and a negative one is money in (income, refunds, payments received). `SUM(amount)` alone subtracts income from spending, so filter on `amount > 0` for spending.
+- **Currencies:** accounts can be in different currencies. Group by `iso_currency_code`; never add amounts across currencies.
+- **Transfers:** a transfer between the owner's linked accounts appears twice, as money out of one and money in on the other (a credit card payment, for example). Leaving out rows with an equal and opposite amount on another account within a few days removes most of them. Transfers to unlinked accounts or between currencies still look like spending, so check the largest rows and exclude those by name.
+- **Categories:** there is no category column. Group by `COALESCE(merchant_name, name)`, or map merchants to categories with `CASE`.
+- **Accounts:** `txns` has no account details. Map `account_id` to names, types and currencies with [Get Accounts](#1-get-accounts).
+
 ### Example queries
 
-Monthly spend breakdown:
+Spending this month, leaving out transfers between linked accounts:
 ```sql
-SELECT TO_CHAR(date, 'YYYY-MM') as month, SUM(amount) as total, COUNT(*) as count
-FROM txns GROUP BY 1 ORDER BY 1
+SELECT iso_currency_code, SUM(amount) AS spent
+FROM txns t
+WHERE amount > 0
+  AND date >= DATE_TRUNC('month', CURRENT_DATE)
+  AND NOT EXISTS (
+    SELECT 1 FROM txns o
+    WHERE o.amount = -t.amount
+      AND o.account_id <> t.account_id
+      AND o.iso_currency_code = t.iso_currency_code
+      AND o.date BETWEEN t.date - INTERVAL '3 days' AND t.date + INTERVAL '3 days'
+  )
+GROUP BY 1
 ```
 
-Top merchants by total spend:
+Money in and out by month:
 ```sql
-SELECT COALESCE(merchant_name, name) as merchant, SUM(amount) as total
-FROM txns GROUP BY 1 ORDER BY total DESC LIMIT 10
+SELECT TO_CHAR(date, 'YYYY-MM') AS month, iso_currency_code,
+  SUM(amount) FILTER (WHERE amount > 0) AS money_out,
+  -SUM(amount) FILTER (WHERE amount < 0) AS money_in
+FROM txns GROUP BY 1, 2 ORDER BY 1, 2
 ```
 
-Spending in a date range:
+Top merchants in the last 90 days:
 ```sql
-SELECT SUM(amount) as total FROM txns
-WHERE date >= '2026-01-01' AND date < '2026-02-01'
+SELECT COALESCE(merchant_name, name) AS merchant, iso_currency_code,
+  SUM(amount) AS total, COUNT(*) AS n
+FROM txns
+WHERE amount > 0 AND date >= CURRENT_DATE - INTERVAL '90 days'
+GROUP BY 1, 2 ORDER BY total DESC LIMIT 10
+```
+
+Spending by category this month (extend the `CASE` with the merchants you see):
+```sql
+SELECT CASE
+    WHEN merchant_name IN ('Uber', 'Lyft', 'MTA') THEN 'Transit'
+    WHEN merchant_name ILIKE '%coffee%' OR merchant_name ILIKE '%cafe%' THEN 'Coffee'
+    ELSE 'Other'
+  END AS category,
+  iso_currency_code, SUM(amount) AS spent
+FROM txns
+WHERE amount > 0 AND date >= DATE_TRUNC('month', CURRENT_DATE)
+GROUP BY 1, 2 ORDER BY spent DESC
 ```
 
 Large transactions:
@@ -202,7 +238,7 @@ Response (`201`):
 
 ## Tips
 
-- **Use SQL for aggregations** — monthly totals, top merchants, recurring charges. It's faster and returns less data than fetching all transactions. Transactions have no categories; group by `COALESCE(merchant_name, name)`.
+- **Use SQL for aggregations** — monthly totals, top merchants, recurring charges. It's faster and returns less data than fetching all transactions. Read [Before totaling](#before-totaling) first.
 - **Use `fields` parameter** on GET /api/transactions to reduce payload size when you only need a few columns.
 - **Pagination**: the response doesn't include a cursor. If a page returns `limit` transactions, request the next one with `cursor=<date>:<id>` from the last transaction, keeping the other parameters the same. Cursors only work with the default date sort.
 - **Amount values** are positive for debits (money spent) and negative for credits (money received).
