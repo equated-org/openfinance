@@ -128,10 +128,9 @@ export const Default: Story = {
     searchQuery: "",
     connectedInstitutionIds: new Set<string>(),
     onSearchInput: (query: string) => console.log("Search:", query),
-    onInstitutionSelect: (inst: InstitutionType) =>
-      console.log("Selected:", inst.name),
     onProviderSelect: (inst: InstitutionType, provider: string) =>
       console.log("Provider:", inst.name, provider),
+    onSearchAll: () => console.log("Search all institutions"),
     onClose: () => console.log("Closed"),
   },
 };

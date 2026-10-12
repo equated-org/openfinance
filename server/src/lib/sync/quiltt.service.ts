@@ -8,7 +8,7 @@ import {
   institutionRegistry,
   transactions,
 } from "../../schema";
-import { eq, and, isNull, ilike } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { user as userTable } from "../../schema";
 import type { AccountType } from "$lib/sql/institution-registry.sql";
 import { sleep } from "../utils";
@@ -28,14 +28,17 @@ interface QuilttAccount {
   } | null;
 }
 
+interface QuilttInstitution {
+  id: string;
+  name: string;
+  logo?: { url: string } | null;
+}
+
 interface QuilttConnection {
   id: string;
   provider: string;
   status: string;
-  institution?: {
-    name: string;
-    logo?: { url: string };
-  };
+  institution?: QuilttInstitution | null;
   accounts: QuilttAccount[];
 }
 
@@ -75,6 +78,7 @@ const CONNECTION_QUERY = `
       provider
       status
       institution {
+        id
         name
         logo { url }
       }
@@ -433,15 +437,56 @@ class QuilttService {
     }
   }
 
-  // Registry lookup
+  // Registry attribution
 
-  async findRegistryId(institutionName: string): Promise<number | null> {
+  /**
+   * Names a connection after the institution Quiltt reports for it, on every
+   * connect and sync, so Quiltt stays the source for its own connections.
+   *
+   * The registry row is keyed on Quiltt's institution id, since Quiltt's names
+   * don't match other catalogs ("BMO", not "Bank of Montreal"). Quiltt reports
+   * no homepage, so the row keeps Quiltt's logo for display instead. It has no
+   * Plaid or MX data, so search never offers it. When Quiltt reports no
+   * institution, the connection keeps whatever it had.
+   */
+  private async attributeInstitution(
+    connectionId: number,
+    institution: QuilttInstitution | null | undefined,
+  ): Promise<void> {
+    if (!institution) return;
+
+    const logo = institution.logo?.url ?? null;
     const [row] = await db
-      .select({ id: institutionRegistry.id })
-      .from(institutionRegistry)
-      .where(ilike(institutionRegistry.name, institutionName))
-      .limit(1);
-    return row?.id ?? null;
+      .insert(institutionRegistry)
+      .values({
+        name: institution.name,
+        logo,
+        // Quiltt reports no country. The column is required, and nothing
+        // filters these rows by country.
+        countryCode: "",
+        providerCompositeKey: `quiltt_${institution.id}`,
+        lastSynced: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: institutionRegistry.providerCompositeKey,
+        set: {
+          name: institution.name,
+          logo,
+          lastSynced: new Date(),
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ id: institutionRegistry.id });
+
+    await db
+      .update(accountConnections)
+      .set({ institutionRegistryId: row.id, updatedAt: new Date() })
+      .where(
+        and(
+          eq(accountConnections.id, connectionId),
+          sql`${accountConnections.institutionRegistryId} is distinct from ${row.id}`,
+        ),
+      );
   }
 
   // Sync methods
@@ -450,10 +495,8 @@ class QuilttService {
     userId: string;
     quilttConnectionId: string;
     quilttProfileId: string;
-    institutionRegistryId?: number | null;
   }): Promise<{ syncJobId: number }> {
     const { userId, quilttConnectionId, quilttProfileId } = params;
-    let institutionRegistryId = params.institutionRegistryId ?? null;
 
     // Fetch connection details from Quiltt
     const connection = await this.getConnection(
@@ -461,20 +504,12 @@ class QuilttService {
       quilttConnectionId,
     );
 
-    // If no registry ID provided, try name-based lookup
-    if (!institutionRegistryId && connection.institution?.name) {
-      institutionRegistryId = await this.findRegistryId(
-        connection.institution.name,
-      );
-    }
-
     // Create or reactivate account connection
     const [conn] = await db
       .insert(accountConnections)
       .values({
         userId,
         provider: "quiltt",
-        institutionRegistryId,
         quilttConnectionId,
         status: "active",
       })
@@ -482,13 +517,14 @@ class QuilttService {
         target: [accountConnections.quilttConnectionId],
         set: {
           status: "active",
-          institutionRegistryId,
           updatedAt: new Date(),
         },
       })
       .returning();
 
     const connectionId = conn.id;
+
+    await this.attributeInstitution(connectionId, connection.institution);
 
     this.markFirstAccountConnected(userId);
 
@@ -544,6 +580,9 @@ class QuilttService {
       quilttProfileId,
       quilttConnectionId,
     );
+    // Also moves connections made before Quiltt named them (off the old
+    // Mastercard catalog) onto Quiltt's institution.
+    await this.attributeInstitution(connectionId, connection.institution);
     await this.upsertAccountsFromConnection(
       userId,
       connectionId,

@@ -11,13 +11,12 @@
 
 import type { InstitutionRegistry } from "$lib/sql/institution-registry.sql";
 import type { AccountType } from "$lib/sql/institution-registry.sql";
+import type { CatalogProvider } from "@openfinance/shared";
 import * as fuzz from "fuzzball";
-
-type SyncProvider = "plaid" | "mx" | "quiltt";
 
 export interface MergedInstitution extends Omit<InstitutionRegistry, "id"> {
   id?: number;
-  providers: SyncProvider[];
+  providers: CatalogProvider[];
   matchConfidence: number;
   originalInstitutions: InstitutionRegistry[];
 }
@@ -304,8 +303,7 @@ export class InstitutionMatcher {
         providers: [
           ...(inst.plaidData ? ["plaid" as const] : []),
           ...(inst.mxData ? ["mx" as const] : []),
-          ...(inst.mastercardData ? ["quiltt" as const] : []),
-        ] as SyncProvider[],
+        ] as CatalogProvider[],
         matchConfidence: 1.0,
         originalInstitutions: [inst],
       }));
@@ -338,8 +336,7 @@ export class InstitutionMatcher {
           providers: [
             ...(inst.plaidData ? ["plaid" as const] : []),
             ...(inst.mxData ? ["mx" as const] : []),
-            ...(inst.mastercardData ? ["quiltt" as const] : []),
-          ] as SyncProvider[],
+          ] as CatalogProvider[],
           matchConfidence: 1.0,
           originalInstitutions: insts,
         };
@@ -352,10 +349,9 @@ export class InstitutionMatcher {
           : best,
       );
 
-      const providers: SyncProvider[] = [];
+      const providers: CatalogProvider[] = [];
       let plaidData = null;
       let mxData = null;
-      let mastercardData = null;
 
       for (const inst of insts) {
         if (inst.plaidData && !providers.includes("plaid")) {
@@ -365,10 +361,6 @@ export class InstitutionMatcher {
         if (inst.mxData && !providers.includes("mx")) {
           providers.push("mx");
           mxData = mxData || inst.mxData;
-        }
-        if (inst.mastercardData && !providers.includes("quiltt")) {
-          providers.push("quiltt");
-          mastercardData = mastercardData || inst.mastercardData;
         }
       }
 
@@ -397,7 +389,6 @@ export class InstitutionMatcher {
         providerCompositeKey: primary.providerCompositeKey,
         plaidData,
         mxData,
-        mastercardData,
         supportedAccountTypes: mergedSupportedTypes,
         isTopInstitution: insts.some((i) => i.isTopInstitution),
         countryRank: minCountryRank < 999 ? minCountryRank : null,

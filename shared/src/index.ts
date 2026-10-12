@@ -1,5 +1,6 @@
 export type {
   SyncProvider,
+  CatalogProvider,
   InstitutionType,
   SearchInstitutionsResponse,
 } from "./types/institution.js";

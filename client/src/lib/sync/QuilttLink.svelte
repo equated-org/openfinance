@@ -14,27 +14,16 @@
 
   // State
   let isLinking = $state(false);
-  let currentRegistryId = $state<number | undefined>();
 
   /**
-   * Normalize institution name for Quiltt search.
-   * Removes common suffixes that don't work with Quiltt search.
+   * Opens Quiltt's connector on its own institution search. It's never handed
+   * a bank name: one Quiltt can't resolve dead-ends on "Institution No Longer
+   * Supported" instead of letting the user search.
    */
-  function normalizeInstitutionName(name: string): string {
-    return name
-      .replace(/\s*[-\u2013]\s*(Personal|Business|Corporate|Commercial)$/i, "")
-      .replace(/\s*\((Personal|Business|Corporate|Commercial)\)$/i, "")
-      .trim();
-  }
-
-  export async function initiateQuilttLink(
-    institutionName?: string,
-    institutionRegistryId?: number,
-  ) {
+  export async function initiateQuilttLink() {
     if (isLinking) return;
 
     isLinking = true;
-    currentRegistryId = institutionRegistryId;
 
     try {
       await loadQuilttSdk();
@@ -46,9 +35,6 @@
       const profileId = sessionData.profileId;
 
       const connector = window.Quiltt.connect(sessionData.connectorId, {
-        institution: institutionName
-          ? normalizeInstitutionName(institutionName)
-          : undefined,
         onExitSuccess: (metadata) => {
           handleSuccess(metadata.connectionId!, profileId);
         },
@@ -76,7 +62,7 @@
         description: "We started syncing your transactions.",
       });
 
-      await quilttCallback(connectionId, profileId, currentRegistryId);
+      await quilttCallback(connectionId, profileId);
 
       // Small delay to ensure server-side processing completes
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -130,6 +116,5 @@
 
   function cleanup() {
     isLinking = false;
-    currentRegistryId = undefined;
   }
 </script>

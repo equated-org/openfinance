@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { InstitutionType } from "@openfinance/shared";
-  import { getAccountLogoUrl } from "$lib/accounts/utils";
+  import { getInstitutionLogoUrls } from "$lib/accounts/utils";
   import { cn } from "$lib/utils";
 
   interface Props {
@@ -8,6 +8,8 @@
     institution?: InstitutionType;
     /** String mode: pass url + name (for accounts, transactions, notifications) */
     institutionUrl?: string | null;
+    /** String mode: the provider's own logo, for when logo.dev has none */
+    institutionLogoUrl?: string | null;
     institutionName?: string;
     size?: "sm" | "md" | "lg";
     class?: string;
@@ -22,6 +24,7 @@
   let {
     institution,
     institutionUrl,
+    institutionLogoUrl,
     institutionName,
     size = "sm",
     class: className,
@@ -48,15 +51,24 @@
   // Object mode: logoUrl (e.g. MX medium logo)
   const objectLogoUrl = $derived(institution?.logoUrl ?? null);
 
-  // String mode: logo.dev URL
-  const logoDevUrl = $derived(
+  // String mode: logo.dev by homepage, then the provider's logo. A logo that
+  // fails to load moves on to the next, and past the last to the letter below.
+  const stringLogoUrls = $derived(
     !institution
-      ? getAccountLogoUrl(institutionUrl ?? null, config.apiSize)
-      : null,
+      ? getInstitutionLogoUrls(
+          institutionUrl ?? null,
+          institutionLogoUrl ?? null,
+          config.apiSize,
+        )
+      : [],
+  );
+  let missed = $state<string[]>([]);
+  const stringLogoUrl = $derived(
+    stringLogoUrls.find((src) => !missed.includes(src)) ?? null,
   );
 
-  // Final resolved image src: base64 → logoUrl → logo.dev
-  const imgSrc = $derived(base64Src ?? objectLogoUrl ?? logoDevUrl);
+  // Final resolved image src: base64 → logoUrl → string mode's logo
+  const imgSrc = $derived(base64Src ?? objectLogoUrl ?? stringLogoUrl);
 
   const primaryColor = $derived(institution?.primaryColor ?? null);
 </script>
@@ -73,7 +85,14 @@
     : undefined}
 >
   {#if imgSrc}
-    <img src={imgSrc} alt={name} class="w-full h-full object-contain" />
+    <img
+      src={imgSrc}
+      alt={name}
+      class="w-full h-full object-contain"
+      onerror={() => {
+        if (stringLogoUrl) missed = [...missed, stringLogoUrl];
+      }}
+    />
   {:else}
     <span
       class={cn(

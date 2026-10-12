@@ -69,6 +69,7 @@
   <div class="relative flex-shrink-0">
     <InstitutionLogo
       institutionUrl={account.institutionUrl}
+      institutionLogoUrl={account.institutionLogoUrl}
       institutionName={account.institutionName}
       size="lg"
     />

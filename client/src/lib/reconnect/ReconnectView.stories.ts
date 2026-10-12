@@ -32,6 +32,7 @@ const link: ReconnectLinkStatus = {
   provider: "plaid",
   institutionName: "Chase",
   institutionUrl: "https://www.chase.com",
+  institutionLogoUrl: null,
   accountName: "Total Checking",
   accountMask: "4321",
   expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),

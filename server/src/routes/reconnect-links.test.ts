@@ -318,6 +318,7 @@ describe("public reconnect link", () => {
       provider: "plaid",
       institutionName: "Reconnect Test Bank",
       institutionUrl: "https://reconnecttest.com",
+      institutionLogoUrl: null,
       accountName: "Checking",
       accountMask: "1234",
       state: "ready",
@@ -427,7 +428,6 @@ describe("public reconnect link", () => {
       userId: testUserId,
       quilttConnectionId,
       quilttProfileId,
-      institutionRegistryId: registryId,
     });
     expect(quilttService.revokeSession).toHaveBeenCalledWith(first.sessionToken);
     expect((await linkRow(token)).quilttSessionToken).toBeNull();

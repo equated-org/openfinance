@@ -17,6 +17,7 @@ export {
 
 export {
   institutionRegistry,
+  institutionLogoUrl,
   ALL_ACCOUNT_TYPES,
   type InstitutionRegistry,
   type NewInstitutionRegistry,

@@ -23,6 +23,7 @@
     connectionId: number;
     institutionName: string;
     institutionUrl: string | null;
+    institutionLogoUrl: string | null;
     accounts: ConnectedAccount[];
   }
 
@@ -42,6 +43,7 @@
           connectionId: account.connectionId,
           institutionName: account.institutionName,
           institutionUrl: account.institutionUrl,
+          institutionLogoUrl: account.institutionLogoUrl,
           accounts: [],
         };
         map.set(account.connectionId, group);
@@ -134,6 +136,7 @@
     <div class="flex items-center gap-3">
       <InstitutionLogo
         institutionUrl={selectedGroup.institutionUrl}
+        institutionLogoUrl={selectedGroup.institutionLogoUrl}
         institutionName={selectedGroup.institutionName}
         size="md"
       />
@@ -250,6 +253,7 @@
         >
           <InstitutionLogo
             institutionUrl={group.institutionUrl}
+            institutionLogoUrl={group.institutionLogoUrl}
             institutionName={group.institutionName}
             size="lg"
           />

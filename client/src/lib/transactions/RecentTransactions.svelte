@@ -76,6 +76,7 @@
               <div class="flex items-center gap-1.5 min-w-0 ml-2">
                 <InstitutionLogo
                   institutionUrl={account.institutionUrl}
+                  institutionLogoUrl={account.institutionLogoUrl}
                   institutionName={account.institutionName}
                 />
                 <span class="text-xs text-[var(--text-muted)] truncate">

@@ -11,6 +11,7 @@ import {
   accountConnections,
   financialAccounts,
   institutionRegistry,
+  institutionLogoUrl,
   reconnectLinks,
   user as userTable,
   type AccountConnection,
@@ -72,6 +73,7 @@ export interface ResolvedReconnectLink {
   accountMask: string | null;
   institutionName: string | null;
   institutionUrl: string | null;
+  institutionLogoUrl: string | null;
 }
 
 class ReconnectLinkService {
@@ -159,6 +161,7 @@ class ReconnectLinkService {
         accountMask: financialAccounts.mask,
         institutionName: institutionRegistry.name,
         institutionUrl: institutionRegistry.url,
+        institutionLogoUrl,
       })
       .from(reconnectLinks)
       .innerJoin(
@@ -189,6 +192,7 @@ class ReconnectLinkService {
       accountMask: row.accountMask,
       institutionName: row.institutionName,
       institutionUrl: row.institutionUrl,
+      institutionLogoUrl: row.institutionLogoUrl,
     };
   }
 
@@ -223,6 +227,7 @@ class ReconnectLinkService {
       provider: resolved.target.provider,
       institutionName: resolved.institutionName,
       institutionUrl: resolved.institutionUrl,
+      institutionLogoUrl: resolved.institutionLogoUrl,
       accountName: resolved.accountName,
       accountMask: resolved.accountMask,
       expiresAt: resolved.link.expiresAt.toISOString(),
@@ -339,7 +344,6 @@ class ReconnectLinkService {
       userId: link.userId,
       quilttConnectionId,
       quilttProfileId: profileId,
-      institutionRegistryId,
     });
 
     // The page is done with the session, so don't leave it valid for a day.

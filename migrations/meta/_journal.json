@@ -141,6 +141,13 @@
       "when": 1791764953368,
       "tag": "0019_mcp-oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791767866051,
+      "tag": "0020_drop-mastercard-catalog",
+      "breakpoints": true
     }
   ]
 }

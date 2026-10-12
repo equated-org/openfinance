@@ -25,6 +25,7 @@ export interface ReconnectLinkStatus {
   provider: ReconnectProvider;
   institutionName: string | null;
   institutionUrl: string | null;
+  institutionLogoUrl: string | null;
   accountName: string;
   accountMask: string | null;
   expiresAt: string;

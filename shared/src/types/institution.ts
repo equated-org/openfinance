@@ -1,5 +1,11 @@
 export type SyncProvider = "plaid" | "mx" | "quiltt";
 
+/**
+ * Providers whose institution catalogs the search serves. Quiltt has none
+ * here: the picker opens Quiltt's connector on its own search instead.
+ */
+export type CatalogProvider = Exclude<SyncProvider, "quiltt">;
+
 export interface InstitutionType {
   id: string;
   name: string;
@@ -47,20 +53,8 @@ export interface InstitutionType {
     supportsAccountStatement?: boolean;
     supportsAccountVerification?: boolean;
   } | null;
-  mastercardData?: {
-    institutionId: string;
-    name: string;
-    oauthEnabled: boolean;
-    status: string;
-    urlHomeApp?: string | null;
-    accountTypeDescription?: string | null;
-    branding?: {
-      logo?: string | null;
-      icon?: string | null;
-      primaryColor?: string | null;
-    } | null;
-  } | null;
-  providers?: SyncProvider[];
+  /** The catalogs it can be connected through; search returns at least one. */
+  providers: CatalogProvider[];
   matchConfidence?: number;
   rank?: number;
 }

@@ -29,6 +29,7 @@ function account(overrides: Partial<ConnectedAccount>): ConnectedAccount {
     isoCurrencyCode: "USD",
     institutionName: "Chase",
     institutionUrl: "https://www.chase.com",
+    institutionLogoUrl: null,
     syncError: null,
     isSyncing: false,
     connectionId: 1,

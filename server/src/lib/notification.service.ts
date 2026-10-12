@@ -4,6 +4,7 @@ import {
   user,
   accountConnections,
   institutionRegistry,
+  institutionLogoUrl,
 } from "../schema";
 import type {
   AccountDisconnectedMetadata,
@@ -15,6 +16,24 @@ import { accountDisconnectEmail } from "./emails/templates/account-disconnect";
 
 const EMAIL_FROM =
   process.env.EMAIL_FROM ?? "OpenFinance <hello@openfinance.sh>";
+
+/** The institution a connection is attributed to, if it has one. */
+async function connectionInstitution(connectionId: number) {
+  const [institution] = await db
+    .select({
+      name: institutionRegistry.name,
+      url: institutionRegistry.url,
+      logoUrl: institutionLogoUrl,
+    })
+    .from(accountConnections)
+    .innerJoin(
+      institutionRegistry,
+      eq(accountConnections.institutionRegistryId, institutionRegistry.id),
+    )
+    .where(eq(accountConnections.id, connectionId))
+    .limit(1);
+  return institution;
+}
 
 export const notificationService = {
   async sendAccountDisconnectEmail(params: {
@@ -42,16 +61,7 @@ export const notificationService = {
       return null;
     }
 
-    // Look up institution name from connection
-    const [institution] = await db
-      .select({ name: institutionRegistry.name, url: institutionRegistry.url })
-      .from(accountConnections)
-      .innerJoin(
-        institutionRegistry,
-        eq(accountConnections.institutionRegistryId, institutionRegistry.id),
-      )
-      .where(eq(accountConnections.id, connectionId))
-      .limit(1);
+    const institution = await connectionInstitution(connectionId);
     const institutionName = institution?.name ?? "your financial institution";
 
     // Fetch user email and name
@@ -82,6 +92,7 @@ export const notificationService = {
       connectionId,
       institutionName,
       institutionUrl: institution?.url ?? null,
+      institutionLogoUrl: institution?.logoUrl ?? null,
       ...(errorMessage && { errorMessage }),
     };
 
@@ -111,18 +122,7 @@ export const notificationService = {
     const total = added + modified + removed;
     if (total === 0) return null;
 
-    const [institution] = await db
-      .select({
-        name: institutionRegistry.name,
-        url: institutionRegistry.url,
-      })
-      .from(accountConnections)
-      .innerJoin(
-        institutionRegistry,
-        eq(accountConnections.institutionRegistryId, institutionRegistry.id),
-      )
-      .where(eq(accountConnections.id, connectionId))
-      .limit(1);
+    const institution = await connectionInstitution(connectionId);
 
     const institutionName = institution?.name ?? "Unknown institution";
 
@@ -131,6 +131,7 @@ export const notificationService = {
       connectionId,
       institutionName,
       institutionUrl: institution?.url ?? null,
+      institutionLogoUrl: institution?.logoUrl ?? null,
       added,
       modified,
       removed,

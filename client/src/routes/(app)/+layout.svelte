@@ -30,9 +30,9 @@
     DialogTitle,
   } from "$lib/components/ui/dialog";
   import type {
+    CatalogProvider,
     ConnectedAccount,
     InstitutionType,
-    SyncProvider,
     PlanType,
   } from "@openfinance/shared";
 
@@ -109,7 +109,7 @@
 
   function handleProviderSelect(
     institution: InstitutionType,
-    provider: SyncProvider,
+    provider: CatalogProvider,
   ) {
     searchOpen = false;
     launchProvider(institution, provider);
@@ -117,18 +117,19 @@
 
   function launchProvider(
     institution: InstitutionType,
-    provider: SyncProvider,
+    provider: CatalogProvider,
   ) {
     if (provider === "plaid") {
       plaidLink.initiatePlaidLink(institution.plaidData?.institutionId);
     } else if (provider === "mx") {
       mxLink.initiateMXLink(institution.mxData?.institutionCode);
-    } else if (provider === "quiltt") {
-      quilttLink.initiateQuilttLink(
-        institution.name,
-        institution.id ? parseInt(institution.id) : undefined,
-      );
     }
+  }
+
+  // Banks outside the Plaid and MX catalogs are found in Quiltt's own search.
+  function handleSearchAll() {
+    searchOpen = false;
+    quilttLink.initiateQuilttLink();
   }
 
   function handleAccountLinked() {
@@ -206,6 +207,7 @@
   <InstitutionSearchContainer
     bind:isOpen={searchOpen}
     onProviderSelect={handleProviderSelect}
+    onSearchAll={handleSearchAll}
   />
 
   {#snippet brand()}

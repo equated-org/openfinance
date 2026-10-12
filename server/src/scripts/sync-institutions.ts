@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { PlaidInstitutionSyncer } from "$lib/sync/plaid-institution-syncer.js";
 import { MXInstitutionSyncer } from "$lib/sync/mx-institution-syncer.js";
 
-type Provider = "plaid" | "mx" | "mastercard" | "update-status";
+type Provider = "plaid" | "mx" | "update-status";
 
 const program = new Command();
 
@@ -14,7 +14,7 @@ program
   .description("Sync financial institutions from Plaid to the database")
   .argument(
     "[provider]",
-    "Provider to sync from: plaid (default), mx, mastercard, update-status",
+    "Provider to sync from: plaid (default), mx, update-status",
     "plaid",
   )
   .option(
@@ -27,7 +27,6 @@ program
 Examples:
   tsx server/src/scripts/sync-institutions.ts plaid --limit 10
   tsx server/src/scripts/sync-institutions.ts mx --limit 10
-  tsx server/src/scripts/sync-institutions.ts mastercard --limit 10
   tsx server/src/scripts/sync-institutions.ts update-status
 `,
   )
@@ -60,13 +59,6 @@ Examples:
           console.log("Syncing MX institutions...");
           const mxSyncer = new MXInstitutionSyncer();
           await mxSyncer.refreshInstitutions(limit);
-          break;
-        }
-        case "mastercard": {
-          console.log("Seeding Mastercard institutions from JSON...");
-          const { seedMastercardInstitutions } =
-            await import("./seed-mastercard-institutions.js");
-          await seedMastercardInstitutions({ limit });
           break;
         }
         case "update-status":

@@ -23,6 +23,7 @@ const baseAccount: ConnectedAccount = {
   isoCurrencyCode: "USD",
   institutionName: "Chase",
   institutionUrl: "https://www.chase.com",
+  institutionLogoUrl: null,
   syncError: null,
   isSyncing: false,
   connectionId: 1,

@@ -4,16 +4,19 @@ import {
   it,
   expect,
   beforeAll,
+  beforeEach,
   afterAll,
   afterEach,
   vi,
 } from "vitest";
-import { eq } from "drizzle-orm";
+import { DBOS } from "@dbos-inc/dbos-sdk";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import {
   user,
   accountConnections,
   financialAccounts,
+  institutionRegistry,
   syncJobs,
   transactions,
 } from "../../schema";
@@ -179,6 +182,16 @@ describe("QuilttService.syncTransactions", () => {
       .delete(accountConnections)
       .where(eq(accountConnections.userId, testUserId));
     await db.delete(user).where(eq(user.id, testUserId));
+    await db
+      .delete(institutionRegistry)
+      .where(
+        inArray(institutionRegistry.providerCompositeKey, [
+          "quiltt_inst_test",
+          "quiltt_inst_cibc",
+          `quiltt_inst_wf_${quilttConnectionId}`,
+          `mastercard_wf_${quilttConnectionId}`,
+        ]),
+      );
   });
 
   afterEach(() => {
@@ -198,7 +211,7 @@ describe("QuilttService.syncTransactions", () => {
       id: quilttConnectionId,
       provider: "plaid_aggregated",
       status: "SYNCED",
-      institution: { name: "Test Bank" },
+      institution: { id: "inst_test", name: "Test Bank" },
       accounts: [
         {
           id: "quiltt_acct_checking",
@@ -245,7 +258,7 @@ describe("QuilttService.syncTransactions", () => {
       id: quilttConnectionId,
       provider: "plaid_aggregated",
       status: "SYNCED",
-      institution: { name: "CIBC Canada" },
+      institution: { id: "inst_cibc", name: "CIBC Canada" },
       accounts: [
         {
           id: "quiltt_acct_cad",
@@ -295,7 +308,7 @@ describe("QuilttService.syncTransactions", () => {
       id: quilttConnectionId,
       provider: "plaid_aggregated",
       status: "SYNCED",
-      institution: { name: "CIBC Canada" },
+      institution: { id: "inst_cibc", name: "CIBC Canada" },
       accounts: [
         {
           id: "quiltt_acct_cad",
@@ -365,5 +378,216 @@ describe("QuilttService.syncTransactions", () => {
     expect(byProviderId("quiltt_txn_explicit")?.isoCurrencyCode).toBe("CAD");
     expect(byProviderId("quiltt_txn_inherits")?.isoCurrencyCode).toBe("CAD");
     expect(byProviderId("quiltt_txn_unknown")?.isoCurrencyCode).toBeNull();
+  });
+
+  // Connections made before Quiltt named them point at the old Mastercard
+  // catalog; their next sync moves them onto Quiltt's institution.
+  it("moves a connection onto the institution Quiltt reports", async () => {
+    const [catalogRow] = await db
+      .insert(institutionRegistry)
+      .values({
+        name: "Wells Fargo",
+        url: "www.wellsfargo.com",
+        countryCode: "US",
+        providerCompositeKey: `mastercard_wf_${quilttConnectionId}`,
+        lastSynced: new Date(),
+      })
+      .returning();
+    await db
+      .update(accountConnections)
+      .set({ institutionRegistryId: catalogRow.id })
+      .where(eq(accountConnections.id, connectionId));
+
+    vi.spyOn(quilttService, "getConnection").mockResolvedValue({
+      id: quilttConnectionId,
+      provider: "FINICITY",
+      status: "SYNCED",
+      institution: {
+        id: `inst_wf_${quilttConnectionId}`,
+        name: "Wells Fargo",
+        logo: { url: "https://cdn.quiltt.io/institutions/wf.png" },
+      },
+      accounts: [],
+    });
+    vi.spyOn(quilttService, "getAllTransactions").mockResolvedValue([]);
+
+    await quilttService.syncTransactions({
+      connectionId,
+      quilttConnectionId,
+      quilttProfileId: "profile_1",
+    });
+
+    const [row] = await db
+      .select({
+        key: institutionRegistry.providerCompositeKey,
+        logo: institutionRegistry.logo,
+      })
+      .from(accountConnections)
+      .innerJoin(
+        institutionRegistry,
+        eq(accountConnections.institutionRegistryId, institutionRegistry.id),
+      )
+      .where(eq(accountConnections.id, connectionId));
+    expect(row).toEqual({
+      key: `quiltt_inst_wf_${quilttConnectionId}`,
+      logo: "https://cdn.quiltt.io/institutions/wf.png",
+    });
+  });
+});
+
+describe("QuilttService.connectAndPerformInitialSync", () => {
+  const suffix = randomUUID().slice(0, 8);
+  const testUserId = `test-user-${suffix}`;
+  const institution = {
+    id: `inst_${suffix}`,
+    name: "BMO",
+    logo: { url: "https://cdn.quiltt.io/institutions/bmo.png" },
+  };
+  let catalogRowId: number;
+
+  beforeAll(async () => {
+    await db.insert(user).values({
+      id: testUserId,
+      name: "Test User",
+      email: `${testUserId}@test.com`,
+      emailVerified: false,
+    });
+    const [row] = await db
+      .insert(institutionRegistry)
+      .values({
+        name: "Bank of Montreal",
+        url: "https://www.bmo.com",
+        countryCode: "CA",
+        providerCompositeKey: `mastercard_${suffix}`,
+        lastSynced: new Date(),
+      })
+      .returning();
+    catalogRowId = row.id;
+  });
+
+  beforeEach(() => {
+    vi.spyOn(DBOS, "startWorkflow").mockReturnValue({
+      run: vi.fn().mockResolvedValue(undefined),
+    } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    const conns = await db
+      .select({ id: accountConnections.id })
+      .from(accountConnections)
+      .where(eq(accountConnections.userId, testUserId));
+    if (conns.length) {
+      await db.delete(syncJobs).where(
+        inArray(
+          syncJobs.accountConnectionId,
+          conns.map((c) => c.id),
+        ),
+      );
+    }
+    await db
+      .delete(accountConnections)
+      .where(eq(accountConnections.userId, testUserId));
+    await db.delete(user).where(eq(user.id, testUserId));
+    await db
+      .delete(institutionRegistry)
+      .where(
+        inArray(institutionRegistry.providerCompositeKey, [
+          `mastercard_${suffix}`,
+          `quiltt_${institution.id}`,
+        ]),
+      );
+  });
+
+  /** Connects through Quiltt and returns the connection's registry id. */
+  async function connect(
+    quilttConnectionId: string,
+    reported: typeof institution | null = institution,
+  ) {
+    vi.spyOn(quilttService, "getConnection").mockResolvedValue({
+      id: quilttConnectionId,
+      provider: "FINICITY",
+      status: "SYNCED",
+      institution: reported,
+      accounts: [],
+    });
+    await quilttService.connectAndPerformInitialSync({
+      userId: testUserId,
+      quilttConnectionId,
+      quilttProfileId: "profile_1",
+    });
+    const [conn] = await db
+      .select({ registryId: accountConnections.institutionRegistryId })
+      .from(accountConnections)
+      .where(eq(accountConnections.quilttConnectionId, quilttConnectionId));
+    return conn.registryId;
+  }
+
+  // Quiltt's names don't match our catalogs ("BMO", not "Bank of Montreal"),
+  // so the row is keyed on Quiltt's own institution id instead.
+  it("names a new connection after the institution Quiltt reports", async () => {
+    const registryId = await connect(`conn_new_${suffix}`);
+
+    const [row] = await db
+      .select()
+      .from(institutionRegistry)
+      .where(eq(institutionRegistry.id, registryId!));
+    expect(row).toMatchObject({
+      providerCompositeKey: `quiltt_${institution.id}`,
+      name: "BMO",
+      logo: institution.logo.url,
+      plaidData: null,
+      mxData: null,
+    });
+  });
+
+  /** The registry id of the row built from `institution`. */
+  async function quilttRowId() {
+    const [row] = await db
+      .select({ id: institutionRegistry.id })
+      .from(institutionRegistry)
+      .where(
+        eq(institutionRegistry.providerCompositeKey, `quiltt_${institution.id}`),
+      );
+    return row.id;
+  }
+
+  it("moves a reconnected connection onto the institution Quiltt reports", async () => {
+    const quilttConnectionId = `conn_old_${suffix}`;
+    await db.insert(accountConnections).values({
+      userId: testUserId,
+      provider: "quiltt",
+      quilttConnectionId,
+      institutionRegistryId: catalogRowId,
+    });
+
+    expect(await connect(quilttConnectionId)).toBe(await quilttRowId());
+  });
+
+  it("keeps a connection's institution when Quiltt reports none", async () => {
+    const quilttConnectionId = `conn_kept_${suffix}`;
+    await db.insert(accountConnections).values({
+      userId: testUserId,
+      provider: "quiltt",
+      quilttConnectionId,
+      institutionRegistryId: catalogRowId,
+    });
+
+    expect(await connect(quilttConnectionId, null)).toBe(catalogRowId);
+  });
+
+  // A failed name match used to leave these showing "Unknown".
+  it("names a reconnected connection that had no institution", async () => {
+    const quilttConnectionId = `conn_unnamed_${suffix}`;
+    await db.insert(accountConnections).values({
+      userId: testUserId,
+      provider: "quiltt",
+      quilttConnectionId,
+    });
+
+    expect(await connect(quilttConnectionId)).toBe(await quilttRowId());
   });
 });

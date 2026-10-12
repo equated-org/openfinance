@@ -3,6 +3,7 @@ import {
   financialAccounts,
   accountConnections,
   institutionRegistry,
+  institutionLogoUrl,
   syncJobs,
   type FinancialAccount,
   type NewFinancialAccount,
@@ -20,39 +21,69 @@ interface SyncError {
   lastFailedAt: string;
 }
 
+/** Accounts with the connection and institution that describe them. */
+function selectConnectedAccounts() {
+  return db
+    .select({
+      account: financialAccounts,
+      connectionId: accountConnections.id,
+      provider: accountConnections.provider,
+      quilttConnectionId: accountConnections.quilttConnectionId,
+      institutionName: institutionRegistry.name,
+      institutionUrl: institutionRegistry.url,
+      institutionLogoUrl,
+    })
+    .from(financialAccounts)
+    .innerJoin(
+      accountConnections,
+      eq(financialAccounts.accountConnectionId, accountConnections.id),
+    )
+    .leftJoin(
+      institutionRegistry,
+      eq(accountConnections.institutionRegistryId, institutionRegistry.id),
+    );
+}
+
+type ConnectedAccountRow = Awaited<
+  ReturnType<typeof selectConnectedAccounts>
+>[number];
+
 class FinancialAccountService {
   async getAccountsByUserId(
     userId: string,
     includeStatus: ("active" | "hidden")[] = ["active"],
   ): Promise<ConnectedAccount[]> {
-    const rows = await db
-      .select({
-        account: financialAccounts,
-        connectionId: accountConnections.id,
-        provider: accountConnections.provider,
-        quilttConnectionId: accountConnections.quilttConnectionId,
-        institutionName: institutionRegistry.name,
-        institutionUrl: institutionRegistry.url,
-      })
-      .from(financialAccounts)
-      .innerJoin(
-        accountConnections,
-        eq(financialAccounts.accountConnectionId, accountConnections.id),
-      )
-      .leftJoin(
-        institutionRegistry,
-        eq(accountConnections.institutionRegistryId, institutionRegistry.id),
-      )
-      .where(
-        and(
-          eq(financialAccounts.userId, userId),
-          inArray(financialAccounts.status, includeStatus),
-        ),
-      );
+    const rows = await selectConnectedAccounts().where(
+      and(
+        eq(financialAccounts.userId, userId),
+        inArray(financialAccounts.status, includeStatus),
+      ),
+    );
+    return this.toConnectedAccounts(rows);
+  }
 
+  async getAccountById(
+    accountId: number,
+    userId: string,
+  ): Promise<ConnectedAccount | undefined> {
+    const [row] = await selectConnectedAccounts()
+      .where(eq(financialAccounts.id, accountId))
+      .limit(1);
+    if (!row || row.account.userId !== userId) return undefined;
+
+    const [account] = await this.toConnectedAccounts([row]);
+    return account;
+  }
+
+  /** Shapes rows for the API, with each connection's sync state. */
+  private async toConnectedAccounts(
+    rows: ConnectedAccountRow[],
+  ): Promise<ConnectedAccount[]> {
     const connectionIds = [...new Set(rows.map((r) => r.connectionId))];
-    const syncErrorMap = await this.getSyncErrors(connectionIds);
-    const syncingConnections = await this.getSyncingConnections(connectionIds);
+    const [syncErrorMap, syncingConnections] = await Promise.all([
+      this.getSyncErrors(connectionIds),
+      this.getSyncingConnections(connectionIds),
+    ]);
 
     return rows.map((row) => ({
       id: row.account.id,
@@ -66,6 +97,7 @@ class FinancialAccountService {
       isoCurrencyCode: row.account.isoCurrencyCode,
       institutionName: row.institutionName ?? "Unknown",
       institutionUrl: row.institutionUrl ?? null,
+      institutionLogoUrl: row.institutionLogoUrl ?? null,
       syncError: syncErrorMap.get(row.connectionId) ?? null,
       isSyncing: syncingConnections.has(row.connectionId),
       connectionId: row.connectionId,
@@ -73,60 +105,6 @@ class FinancialAccountService {
       quilttConnectionId: row.quilttConnectionId ?? null,
       status: row.account.status as "active" | "hidden",
     }));
-  }
-
-  async getAccountById(
-    accountId: number,
-    userId: string,
-  ): Promise<ConnectedAccount | undefined> {
-    const rows = await db
-      .select({
-        account: financialAccounts,
-        connectionId: accountConnections.id,
-        provider: accountConnections.provider,
-        quilttConnectionId: accountConnections.quilttConnectionId,
-        institutionName: institutionRegistry.name,
-        institutionUrl: institutionRegistry.url,
-      })
-      .from(financialAccounts)
-      .innerJoin(
-        accountConnections,
-        eq(financialAccounts.accountConnectionId, accountConnections.id),
-      )
-      .leftJoin(
-        institutionRegistry,
-        eq(accountConnections.institutionRegistryId, institutionRegistry.id),
-      )
-      .where(eq(financialAccounts.id, accountId))
-      .limit(1);
-
-    const row = rows[0];
-    if (!row || row.account.userId !== userId) return undefined;
-
-    const syncErrorMap = await this.getSyncErrors([row.connectionId]);
-    const syncingConnections = await this.getSyncingConnections([
-      row.connectionId,
-    ]);
-
-    return {
-      id: row.account.id,
-      name: row.account.name,
-      officialName: row.account.officialName,
-      type: row.account.type,
-      subtype: row.account.subtype,
-      mask: row.account.mask,
-      currentBalance: row.account.currentBalance,
-      availableBalance: row.account.availableBalance,
-      isoCurrencyCode: row.account.isoCurrencyCode,
-      institutionName: row.institutionName ?? "Unknown",
-      institutionUrl: row.institutionUrl ?? null,
-      syncError: syncErrorMap.get(row.connectionId) ?? null,
-      isSyncing: syncingConnections.has(row.connectionId),
-      connectionId: row.connectionId,
-      provider: row.provider,
-      quilttConnectionId: row.quilttConnectionId ?? null,
-      status: row.account.status as "active" | "hidden",
-    };
   }
 
   async upsertAccount(

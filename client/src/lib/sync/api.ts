@@ -148,17 +148,9 @@ export function createQuilttSession() {
   }>("/api/quiltt/session", { method: "POST" });
 }
 
-export function quilttCallback(
-  connectionId: string,
-  profileId: string,
-  institutionRegistryId?: number,
-) {
+export function quilttCallback(connectionId: string, profileId: string) {
   return apiFetch<{ message: string }>("/api/quiltt/callback", {
     method: "POST",
-    body: JSON.stringify({
-      connectionId,
-      profileId,
-      institutionRegistryId,
-    }),
+    body: JSON.stringify({ connectionId, profileId }),
   });
 }
