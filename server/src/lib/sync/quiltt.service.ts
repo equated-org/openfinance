@@ -10,7 +10,7 @@ import {
 } from "../../schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { user as userTable } from "../../schema";
-import type { AccountType } from "$lib/sql/institution-registry.sql";
+import type { AccountType } from "$lib/sql/financial-accounts.sql";
 import { sleep } from "../utils";
 import { proxyFetch } from "../api-proxy";
 

@@ -13,10 +13,6 @@ import {
   streamAllPlaidInstitutions,
   type PlaidInstitution,
 } from "$lib/sync/plaid.client.js";
-import {
-  ALL_ACCOUNT_TYPES,
-  type AccountType,
-} from "$lib/sql/institution-registry.sql";
 
 /**
  * Handles syncing institutions from Plaid to the institution registry
@@ -24,50 +20,6 @@ import {
 export class PlaidInstitutionSyncer implements InstitutionSyncer {
   getProviderName(): string {
     return "plaid";
-  }
-
-  /**
-   * Infer supported account types from Plaid institution products
-   * Maps Plaid products to standardized account types
-   */
-  private inferSupportedAccountTypes(
-    plaidInstitution: PlaidInstitution,
-  ): AccountType[] {
-    const products = plaidInstitution.products || [];
-    const accountTypes = new Set<AccountType>();
-
-    for (const product of products) {
-      switch (product) {
-        case "liabilities":
-          accountTypes.add("credit");
-          break;
-        case "investments":
-        case "investments_auth":
-          accountTypes.add("investment");
-          break;
-        case "auth":
-        case "balance":
-        case "transactions":
-        case "identity":
-        case "assets":
-          accountTypes.add("depository");
-          break;
-        case "income":
-        case "income_verification":
-        case "signal":
-          accountTypes.add("depository");
-          accountTypes.add("credit");
-          break;
-      }
-    }
-
-    if (accountTypes.size === 0 || products.length > 5) {
-      return ALL_ACCOUNT_TYPES.filter(
-        (type): type is AccountType => type !== "loan",
-      );
-    }
-
-    return Array.from(accountTypes);
   }
 
   /**
@@ -207,7 +159,6 @@ export class PlaidInstitutionSyncer implements InstitutionSyncer {
         routingNumbers: plaidInstitution.routing_numbers || [],
       },
       mxData: null,
-      supportedAccountTypes: this.inferSupportedAccountTypes(plaidInstitution),
       lastSynced: new Date(),
     }));
   }

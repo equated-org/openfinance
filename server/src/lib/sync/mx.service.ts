@@ -10,7 +10,7 @@ import {
 } from "../../schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import { user as userTable } from "../../schema";
-import type { AccountType } from "$lib/sql/institution-registry.sql";
+import type { AccountType } from "$lib/sql/financial-accounts.sql";
 
 // MX API Types
 interface MXMember {

@@ -23,29 +23,12 @@
   import BackButton from "$lib/components/ui/BackButton.svelte";
   import { Badge } from "$lib/components/ui/badge";
   import InstitutionLogo from "$lib/components/InstitutionLogo.svelte";
-  import ProviderLogo from "./ProviderLogo.svelte";
   import type { InstitutionType, CatalogProvider } from "@openfinance/shared";
   import { extractBaseDomain } from "$lib/url";
 
-  const logoDevKey = import.meta.env.VITE_LOGO_DEV_PUBLISHABLE_KEY as
-    | string
-    | undefined;
-
-  const PROVIDER_LOGO_DOMAINS: Record<CatalogProvider, string> = {
-    plaid: "plaid.com",
-    mx: "mx.com",
-  };
-
-  function getProviderLogoUrl(provider: CatalogProvider): string | null {
-    if (!logoDevKey) return null;
-    const domain = PROVIDER_LOGO_DOMAINS[provider];
-    return `https://img.logo.dev/${domain}?token=${logoDevKey}&size=64&format=png`;
-  }
-
-  // Provider display name mapping
-  const PROVIDER_DISPLAY_NAMES: Record<CatalogProvider, string> = {
-    plaid: "Plaid",
-    mx: "MX",
+  const PROVIDERS: Record<CatalogProvider, { name: string; url: string }> = {
+    plaid: { name: "Plaid", url: "plaid.com" },
+    mx: { name: "MX", url: "mx.com" },
   };
 
   // Connection health thresholds
@@ -85,20 +68,10 @@
 
   // === HELPERS ===
 
-  function getProviderDisplayInfo(institution: InstitutionType) {
-    const providerNames = institution.providers.map(
-      (p) => PROVIDER_DISPLAY_NAMES[p],
-    );
-    const hasMultipleProviders = providerNames.length > 1;
-
-    let tooltipText = "";
-    if (hasMultipleProviders) {
-      tooltipText = `You can connect to ${institution.name} through more than one secure provider. You'll choose your preferred method on the next step.`;
-    } else if (providerNames.length === 1) {
-      tooltipText = `This bank connects securely using ${providerNames[0]}.`;
-    }
-
-    return { hasMultipleProviders, providerNames, tooltipText };
+  function providerTooltip({ name, providers }: InstitutionType) {
+    return providers.length > 1
+      ? `You can connect to ${name} through more than one secure provider. You'll choose your preferred method on the next step.`
+      : `This bank connects securely using ${PROVIDERS[providers[0]].name}.`;
   }
 
   /**
@@ -126,14 +99,14 @@
 
     const plaid = {
       type: "plaid" as const,
-      name: "Plaid",
+      ...PROVIDERS.plaid,
       hasIssues: plaidHasIssues,
       hasWarning: plaidDegraded,
       description: plaidDescription,
     };
     const mx = {
       type: "mx" as const,
-      name: "MX",
+      ...PROVIDERS.mx,
       hasIssues: false,
       hasWarning: false,
       description: plaidDegraded
@@ -218,7 +191,6 @@
 
         <div class="space-y-3">
           {#each providers as provider}
-            {@const logoUrl = getProviderLogoUrl(provider.type)}
             <button
               onclick={() => handleProviderSelection(provider.type)}
               class="w-full flex items-center justify-between p-4 border rounded-lg transition-colors group {provider.hasIssues
@@ -226,10 +198,10 @@
                 : 'border-[var(--border)] hover:border-[var(--border)] hover:bg-[var(--bg-muted)]'}"
             >
               <div class="flex items-center gap-3">
-                <ProviderLogo
-                  {logoUrl}
-                  name={provider.name}
-                  variant="active"
+                <InstitutionLogo
+                  institutionUrl={provider.url}
+                  institutionName={provider.name}
+                  size="md"
                 />
                 <div class="text-left">
                   <div
@@ -250,23 +222,10 @@
                 </div>
               </div>
               {#if !provider.hasIssues}
-                <div class="text-[var(--text-muted)] group-hover:text-[var(--text-muted)]">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M6 12L10 8L6 4"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </div>
+                <ChevronRight
+                  size={16}
+                  class="flex-shrink-0 text-[var(--text-muted)]"
+                />
               {/if}
             </button>
           {/each}
@@ -319,7 +278,6 @@
             <div class="space-y-1 w-full">
               <TooltipProvider>
                 {#each institutions as institution}
-                  {@const displayInfo = getProviderDisplayInfo(institution)}
                   <div
                     class="flex items-start gap-2 p-2 rounded-lg transition-colors w-full hover:bg-[var(--bg-muted)] cursor-pointer"
                     onclick={() => handleInstitutionClick(institution)}
@@ -346,37 +304,26 @@
                     </div>
 
                     <div class="flex gap-1 flex-shrink-0 items-center">
-                      {#if displayInfo.hasMultipleProviders}
-                        <Tooltip>
-                          <TooltipTrigger>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          {#if institution.providers.length > 1}
                             <span class="text-xs text-[var(--text-muted)]">
                               Multiple options
                             </span>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            class="bg-[var(--bg)] text-[var(--text)] border border-[var(--border)] shadow-md p-2"
-                          >
-                            <p class="max-w-xs text-xs">
-                              {displayInfo.tooltipText}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      {:else if displayInfo.tooltipText}
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <div class="text-[var(--text-muted)] hover:text-[var(--text-muted)]">
+                          {:else}
+                            <div class="text-[var(--text-muted)]">
                               <HelpCircle size={14} />
                             </div>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            class="bg-[var(--bg)] text-[var(--text)] border border-[var(--border)] shadow-md p-2"
-                          >
-                            <p class="max-w-xs text-xs">
-                              {displayInfo.tooltipText}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      {/if}
+                          {/if}
+                        </TooltipTrigger>
+                        <TooltipContent
+                          class="bg-[var(--bg)] text-[var(--text)] border border-[var(--border)] shadow-md p-2"
+                        >
+                          <p class="max-w-xs text-xs">
+                            {providerTooltip(institution)}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 {/each}

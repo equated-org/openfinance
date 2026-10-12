@@ -54,3 +54,9 @@ export const financialAccounts = pgTable(
 
 export type FinancialAccount = typeof financialAccounts.$inferSelect;
 export type NewFinancialAccount = typeof financialAccounts.$inferInsert;
+
+/**
+ * Standardized account types matching Plaid's account type system
+ * Used across all providers for consistency
+ */
+export type AccountType = "credit" | "depository" | "investment" | "loan";

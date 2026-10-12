@@ -45,7 +45,6 @@ describe("InstitutionRegistryService", () => {
             products: ["transactions"],
             routingNumbers: [],
           },
-          supportedAccountTypes: ["depository"],
           lastSynced: new Date(),
         },
         {
@@ -56,7 +55,6 @@ describe("InstitutionRegistryService", () => {
             institutionCode: `${suffix}_mx`,
             name: mxName,
           },
-          supportedAccountTypes: ["depository"],
           lastSynced: new Date(),
         },
         // The shape QuilttService writes when a connection is made.
@@ -128,15 +126,11 @@ describe("InstitutionRegistryService", () => {
   });
 
   it("leaves MX out of the top list when MX isn't configured", async () => {
-    const top = await institutionRegistryService.getTopInstitutions({
-      country: "US",
-    });
+    const top = await institutionRegistryService.searchInstitutions({});
     expect(top.find((i) => i.name === "Chase")?.providers).toEqual(["plaid"]);
 
     mx.configured = true;
-    const merged = await institutionRegistryService.getTopInstitutions({
-      country: "US",
-    });
+    const merged = await institutionRegistryService.searchInstitutions({});
     expect(merged.find((i) => i.name === "Chase")?.providers?.sort()).toEqual(
       ["mx", "plaid"],
     );

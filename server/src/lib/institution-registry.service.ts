@@ -122,8 +122,6 @@ function toInstitutionType(
     plaidData: merged.plaidData ?? null,
     mxData: merged.mxData ?? null,
     providers: merged.providers,
-    matchConfidence: merged.matchConfidence,
-    rank: merged.countryRank ?? undefined,
   };
 }
 
@@ -140,64 +138,42 @@ function connectableInstitutions() {
     : sql`${institutionRegistry.plaidData} is not null`;
 }
 
-/** Rows that support `accountType`; "all" matches every row. */
-function supportsAccountType(accountType: string) {
-  return accountType === "all"
-    ? undefined
-    : sql`${institutionRegistry.supportedAccountTypes}::jsonb @> ${JSON.stringify([accountType])}::jsonb`;
-}
-
-interface SearchParams {
-  query?: string;
-  limit?: number;
-  provider?: string;
-  accountType?: string;
-  country?: string;
-}
+const SEARCH_LIMIT = 20;
 
 class InstitutionRegistryService {
-  async searchInstitutions(params: SearchParams): Promise<InstitutionType[]> {
-    const query = params.query || "";
-    if (!query) {
-      return this.getTopInstitutions(params);
+  /** An empty query lists the country's top banks, US by default. */
+  async searchInstitutions(params: {
+    query?: string;
+    country?: string;
+  }): Promise<InstitutionType[]> {
+    if (!params.query) {
+      return this.getTopInstitutions(params.country || "US");
     }
-
-    const limit = Math.min(params.limit ?? 20, 50);
-    const provider = params.provider || "all";
 
     // Fetch 3x limit to allow deduplication to merge and still have enough results
-    const fetchLimit = limit * 3;
-
-    const conditions = [
-      ilike(institutionRegistry.name, `%${query}%`),
-      connectableInstitutions(),
-      supportsAccountType(params.accountType || "all"),
-    ];
-
-    if (provider === "plaid") {
-      conditions.push(sql`${institutionRegistry.plaidData} is not null`);
-    } else if (provider === "mx") {
-      conditions.push(sql`${institutionRegistry.mxData} is not null`);
-    }
-
     const rows = await db
       .select()
       .from(institutionRegistry)
-      .where(and(...conditions))
-      .limit(fetchLimit);
+      .where(
+        and(
+          ilike(institutionRegistry.name, `%${params.query}%`),
+          connectableInstitutions(),
+        ),
+      )
+      .limit(SEARCH_LIMIT * 3);
 
-    // Deduplicate across providers
-    const deduplicated = InstitutionMatcher.deduplicateInstitutions(rows);
-
-    return deduplicated.slice(0, limit).map(toInstitutionType);
+    return InstitutionMatcher.deduplicateInstitutions(rows)
+      .slice(0, SEARCH_LIMIT)
+      .map(toInstitutionType);
   }
 
-  async getTopInstitutions(params: SearchParams): Promise<InstitutionType[]> {
+  private async getTopInstitutions(
+    country: string,
+  ): Promise<InstitutionType[]> {
     // Only countries with a curated list get suggestions before typing.
-    const topGroups = TOP_INSTITUTIONS_BY_COUNTRY[params.country || "US"];
+    const topGroups = TOP_INSTITUTIONS_BY_COUNTRY[country];
     if (!topGroups) return [];
 
-    const limit = Math.min(params.limit ?? 20, 50);
     const rows = await db
       .select()
       .from(institutionRegistry)
@@ -208,12 +184,11 @@ class InstitutionRegistryService {
             topGroups.flatMap((group) => group.ids),
           ),
           connectableInstitutions(),
-          supportsAccountType(params.accountType || "all"),
         ),
       );
 
     // One entry per group, merging its Plaid and MX rows.
-    return topGroups.slice(0, limit).flatMap((group) => {
+    return topGroups.flatMap((group) => {
       const groupRows = rows.filter(
         (row) =>
           row.providerCompositeKey &&

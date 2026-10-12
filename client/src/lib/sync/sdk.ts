@@ -44,7 +44,7 @@ export interface QuilttMetadata {
   connectionId?: string;
 }
 
-interface QuilttCallbacks {
+export interface QuilttCallbacks {
   onLoad?: (metadata: QuilttMetadata) => void;
   onExitSuccess?: (metadata: QuilttMetadata) => void;
   onExitAbort?: (metadata: QuilttMetadata) => void;
@@ -55,7 +55,7 @@ interface QuilttSdk {
   authenticate: (token: string) => void;
   connect: (
     connectorId: string,
-    options: QuilttCallbacks & { institution?: string },
+    options: QuilttCallbacks,
   ) => { open: () => void };
   reconnect: (
     connectorId: string,

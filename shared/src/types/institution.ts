@@ -55,8 +55,6 @@ export interface InstitutionType {
   } | null;
   /** The catalogs it can be connected through; search returns at least one. */
   providers: CatalogProvider[];
-  matchConfidence?: number;
-  rank?: number;
 }
 
 export interface SearchInstitutionsResponse {

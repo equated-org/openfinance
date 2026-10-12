@@ -4,8 +4,6 @@ import {
   text,
   timestamp,
   json,
-  boolean,
-  integer,
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -40,7 +38,7 @@ export const institutionRegistry = pgTable(
       products: string[];
       routingNumbers: string[];
 
-      // Connection health data (only for top institutions)
+      // Connection health data
       connectionHealth?: {
         item_logins?: {
           status: "HEALTHY" | "DEGRADED" | "DOWN";
@@ -78,14 +76,7 @@ export const institutionRegistry = pgTable(
       logo?: string | null;
     } | null>(),
 
-    // Supported account types - standardized to Plaid's three-type system
-    supportedAccountTypes: json("supported_account_types").$type<
-      AccountType[] | null
-    >(),
-
     // Metadata
-    isTopInstitution: boolean("is_top_institution").default(false).notNull(),
-    countryRank: integer("country_rank"),
     lastSynced: timestamp("last_synced", { mode: "date" }).notNull(),
 
     // Timestamps
@@ -112,19 +103,3 @@ export const institutionLogoUrl = sql<string | null>`case when ${institutionRegi
 
 export type InstitutionRegistry = typeof institutionRegistry.$inferSelect;
 export type NewInstitutionRegistry = typeof institutionRegistry.$inferInsert;
-
-/**
- * Standardized account types matching Plaid's account type system
- * Used across all providers for consistency
- */
-export type AccountType = "credit" | "depository" | "investment" | "loan";
-
-/**
- * All possible account types supported by institutions
- */
-export const ALL_ACCOUNT_TYPES: AccountType[] = [
-  "credit",
-  "depository",
-  "investment",
-  "loan",
-];

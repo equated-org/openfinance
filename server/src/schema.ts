@@ -18,10 +18,8 @@ export {
 export {
   institutionRegistry,
   institutionLogoUrl,
-  ALL_ACCOUNT_TYPES,
   type InstitutionRegistry,
   type NewInstitutionRegistry,
-  type AccountType,
 } from "./lib/sql/institution-registry.sql";
 
 export {

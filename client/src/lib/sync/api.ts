@@ -95,37 +95,10 @@ export function createMxWidgetUrlForUpdate(accountId: number) {
   });
 }
 
-// Institution search functions
-
-export function searchInstitutions(
-  query: string,
-  limit: number = 20,
-  provider: string = "all",
-  accountType: string = "all",
-) {
-  const params = new URLSearchParams({
-    query,
-    limit: String(limit),
-    provider,
-    accountType,
-  });
+/** An empty query lists the top banks. */
+export function searchInstitutions(query: string) {
   return apiFetch<SearchInstitutionsResponse>(
-    `/api/institutions/search?${params}`,
-  );
-}
-
-export function getTopInstitutions(
-  country: string,
-  limit: number = 20,
-  accountType: string = "all",
-) {
-  const params = new URLSearchParams({
-    country,
-    limit: String(limit),
-    accountType,
-  });
-  return apiFetch<SearchInstitutionsResponse>(
-    `/api/institutions/top?${params}`,
+    `/api/institutions/search?${new URLSearchParams({ query })}`,
   );
 }
 

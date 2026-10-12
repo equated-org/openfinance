@@ -148,6 +148,13 @@
       "when": 1791767866051,
       "tag": "0020_drop-mastercard-catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791776457817,
+      "tag": "0021_drop-unused-institution-columns",
+      "breakpoints": true
     }
   ]
 }

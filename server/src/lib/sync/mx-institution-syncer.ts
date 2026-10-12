@@ -10,10 +10,6 @@ import {
   streamAllMxInstitutions,
   isMxConfigured,
 } from "$lib/sync/mx.client.js";
-import {
-  ALL_ACCOUNT_TYPES,
-  type AccountType,
-} from "$lib/sql/institution-registry.sql.js";
 
 /**
  * Handles syncing institutions from MX to the institution registry
@@ -21,31 +17,6 @@ import {
 export class MXInstitutionSyncer implements InstitutionSyncer {
   getProviderName(): string {
     return "mx";
-  }
-
-  /**
-   * Infer supported account types from MX institution capabilities
-   */
-  private inferSupportedAccountTypes(institution: any): AccountType[] {
-    const supported = new Set<AccountType>();
-
-    if (institution.supports_account_verification) {
-      supported.add("depository");
-    }
-
-    if (institution.supports_transaction_history) {
-      supported.add("depository");
-      supported.add("credit");
-    }
-
-    if (institution.supports_account_identification) {
-      supported.add("depository");
-      supported.add("credit");
-    }
-
-    return supported.size > 0
-      ? Array.from(supported).sort()
-      : ALL_ACCOUNT_TYPES;
   }
 
   /**
@@ -109,10 +80,6 @@ export class MXInstitutionSyncer implements InstitutionSyncer {
                   supportsAccountVerification:
                     institution.supports_account_verification || false,
                 },
-                supportedAccountTypes:
-                  this.inferSupportedAccountTypes(institution),
-                isTopInstitution: false,
-                countryRank: null,
                 lastSynced: new Date(),
                 updatedAt: new Date(),
               };

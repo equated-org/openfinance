@@ -1,7 +1,7 @@
 <script lang="ts">
   import InstitutionSearch from "./InstitutionSearch.svelte";
   import type { InstitutionType, CatalogProvider } from "@openfinance/shared";
-  import { searchInstitutions, getTopInstitutions } from "./api";
+  import { searchInstitutions } from "./api";
 
   // === PROPS ===
   interface Props {
@@ -27,29 +27,21 @@
   let institutions = $state<InstitutionType[]>([]);
   let isSearching = $state(false);
   let searchTimeout: ReturnType<typeof setTimeout> | null = null;
-  let countryCache: string | null = null;
 
   // === EFFECTS ===
+  // With no query, list the top banks.
   $effect(() => {
     if (isOpen && !searchQuery.trim()) {
-      loadTopInstitutions();
+      search("");
     }
   });
 
   // === API FUNCTIONS ===
 
-  async function getCurrentCountry(): Promise<string> {
-    if (countryCache) return countryCache;
-    // Default to US; container can be enhanced with geolocation later
-    countryCache = "US";
-    return countryCache;
-  }
-
-  async function loadTopInstitutions() {
+  async function search(query: string) {
     try {
       isSearching = true;
-      const country = await getCurrentCountry();
-      const response = await getTopInstitutions(country, 20, "all");
+      const response = await searchInstitutions(query);
       institutions = response.institutions;
     } catch {
       institutions = [];
@@ -65,27 +57,9 @@
 
     if (searchTimeout) clearTimeout(searchTimeout);
 
-    if (!query.trim()) {
-      loadTopInstitutions();
-      return;
+    if (query.trim()) {
+      searchTimeout = setTimeout(() => search(query.trim()), 300);
     }
-
-    searchTimeout = setTimeout(async () => {
-      try {
-        isSearching = true;
-        const response = await searchInstitutions(
-          query.trim(),
-          20,
-          "all",
-          "all",
-        );
-        institutions = response.institutions;
-      } catch {
-        institutions = [];
-      } finally {
-        isSearching = false;
-      }
-    }, 300);
   }
 
   function handleClose() {

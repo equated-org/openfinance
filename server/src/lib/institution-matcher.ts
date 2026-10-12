@@ -10,14 +10,12 @@
  */
 
 import type { InstitutionRegistry } from "$lib/sql/institution-registry.sql";
-import type { AccountType } from "$lib/sql/institution-registry.sql";
 import type { CatalogProvider } from "@openfinance/shared";
 import * as fuzz from "fuzzball";
 
 export interface MergedInstitution extends Omit<InstitutionRegistry, "id"> {
   id?: number;
   providers: CatalogProvider[];
-  matchConfidence: number;
   originalInstitutions: InstitutionRegistry[];
 }
 
@@ -288,7 +286,6 @@ export class InstitutionMatcher {
     if (institution.logo) score += 2;
     if (institution.primaryColor) score += 1;
     if (institution.url) score += 2;
-    if (institution.isTopInstitution) score += 2;
     if (institution.plaidData) score += 3;
     if (institution.mxData) score += 2;
     return score;
@@ -321,7 +318,6 @@ export class InstitutionMatcher {
         return {
           ...insts[0],
           providers: providersOf(insts[0]),
-          matchConfidence: 1.0,
           originalInstitutions: insts,
         };
       }
@@ -337,19 +333,6 @@ export class InstitutionMatcher {
       const plaidData = insts.find((i) => i.plaidData)?.plaidData ?? null;
       const mxData = insts.find((i) => i.mxData)?.mxData ?? null;
 
-      const allSupportedTypes = insts
-        .map((i) => i.supportedAccountTypes)
-        .filter((types): types is AccountType[] => types !== null)
-        .flat();
-      const mergedSupportedTypes =
-        allSupportedTypes.length > 0
-          ? [...new Set(allSupportedTypes)].sort()
-          : null;
-
-      const minCountryRank = Math.min(
-        ...insts.map((i) => i.countryRank ?? 999),
-      );
-
       return {
         name: primary.name,
         logo: primary.logo || insts.find((i) => i.logo)?.logo || null,
@@ -362,16 +345,12 @@ export class InstitutionMatcher {
         providerCompositeKey: primary.providerCompositeKey,
         plaidData,
         mxData,
-        supportedAccountTypes: mergedSupportedTypes,
-        isTopInstitution: insts.some((i) => i.isTopInstitution),
-        countryRank: minCountryRank < 999 ? minCountryRank : null,
         lastSynced: new Date(
           Math.max(...insts.map((i) => i.lastSynced.getTime())),
         ),
         createdAt: primary.createdAt,
         updatedAt: new Date(),
         providers,
-        matchConfidence: 0.95,
         originalInstitutions: insts,
       };
     });

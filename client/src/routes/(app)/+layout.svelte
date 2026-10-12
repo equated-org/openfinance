@@ -147,7 +147,7 @@
     } else if (account.provider === "plaid") {
       plaidLink.initiateReauthentication(account.id);
     } else if (account.provider === "quiltt" && account.quilttConnectionId) {
-      quilttLink.initiateReauthentication(account.quilttConnectionId);
+      quilttLink.initiateQuilttLink(account.quilttConnectionId);
     }
   }
 
