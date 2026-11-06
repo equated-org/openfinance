@@ -165,6 +165,45 @@ describe("PlaidTransactionSyncWorkflow upstream pull", () => {
     expect(terminalUpdate()?.status).toBe("success");
   });
 
+  it("does not mistake a new Item's finished pull for a reauth", async () => {
+    // Plaid often finishes before Link closes, so last_successful_update is
+    // already set the first time we read it, and it won't advance for hours.
+    withConnection(connection());
+    mockGetItemStatus.mockResolvedValue({
+      lastSuccessfulUpdate: new Date("2026-11-06T07:19:40Z"),
+    });
+    mockSyncTransactions.mockResolvedValue(syncResult());
+
+    await PlaidTransactionSyncWorkflow.run({
+      connectionId: 1,
+      userId: "user-1",
+      syncJobId: 506,
+      awaitUpstreamPull: true,
+    });
+
+    expect(sleepCalls).toEqual([]);
+    expect(terminalUpdate()?.status).toBe("success");
+  });
+
+  it("does not wait on a reauth of an Item with nothing to pull", async () => {
+    // Brokerages never get a cursor: /transactions/sync has nothing for them.
+    withConnection(connection({ transactionCursor: "" }));
+    mockGetItemStatus.mockResolvedValue({
+      lastSuccessfulUpdate: new Date("2026-05-01T00:00:00Z"),
+    });
+    mockSyncTransactions.mockResolvedValue(syncResult());
+
+    await PlaidTransactionSyncWorkflow.run({
+      connectionId: 1,
+      userId: "user-1",
+      syncJobId: 507,
+      awaitUpstreamPull: true,
+    });
+
+    expect(sleepCalls).toEqual([]);
+    expect(terminalUpdate()?.status).toBe("success");
+  });
+
   it("waits for a reauth pull to land even though the status already reads complete", async () => {
     const baseline = new Date("2026-05-01T00:00:00Z");
     const advanced = new Date("2026-07-22T00:00:00Z");

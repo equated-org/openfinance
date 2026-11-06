@@ -29,6 +29,7 @@ export interface PlaidExitMetadata {
   institution: { institution_id: string; name: string } | null;
   status: string;
   link_session_id: string;
+  request_id: string;
 }
 
 export interface PlaidError {

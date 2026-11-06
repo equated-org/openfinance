@@ -15,9 +15,28 @@ const exchangeTokenSchema = z.object({
   institution_id: z.string().optional(),
 });
 
+const linkExitField = z.string().max(200).nullish();
+const linkExitSchema = z.object({
+  status: linkExitField,
+  institution_id: linkExitField,
+  link_session_id: linkExitField,
+  request_id: linkExitField,
+  error_type: linkExitField,
+  error_code: linkExitField,
+});
+
 const plaidRoutes = new Hono<AuthEnv>();
 
 plaidRoutes.use("*", requireSession);
+
+// POST /api/plaid/link_exit
+// A session that ends inside Link never reaches exchange_public_token, so this
+// is our only record of it. Plaid support asks for the link_session_id.
+plaidRoutes.post("/link_exit", zValidator("json", linkExitSchema), (c) => {
+  const details = { userId: c.get("user").id, ...c.req.valid("json") };
+  console.warn(`Plaid Link exit: ${JSON.stringify(details)}`);
+  return c.json({ ok: true });
+});
 
 // POST /api/plaid/create_link_token
 plaidRoutes.post("/create_link_token", async (c) => {

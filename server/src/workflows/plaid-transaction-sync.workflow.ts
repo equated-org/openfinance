@@ -27,12 +27,12 @@ const UPSTREAM_NOT_READY_MESSAGE =
  *
  * A transaction delta is not a readiness signal — an Item can legitimately
  * report "done" with nothing changed, and can equally report NOT_READY forever.
- * The right signal depends on whether the Item has ever pulled before:
+ * The right signal depends on whether we have synced the Item before:
  *
- * - **Never pulled** (no baseline): `transactions_update_status` reaching
+ * - **Not yet** (no baseline): `transactions_update_status` reaching
  *   HISTORICAL_UPDATE_COMPLETE. Anything unknown counts as done, so Items with
  *   no /transactions/sync-eligible accounts (brokerages) don't block.
- * - **Has pulled before** (reauth): the status is *already*
+ * - **Yes** (reauth): the status is *already*
  *   HISTORICAL_UPDATE_COMPLETE from the original link and says nothing about the
  *   fresh pull, so require last_successful_update to advance past the baseline
  *   captured before waiting.
@@ -262,13 +262,18 @@ export class PlaidTransactionSyncWorkflow {
     }
 
     try {
-      // Captured before the first sync so a reauth can tell whether Plaid ran a
-      // fresh pull, which transactions_update_status cannot express.
-      const baseline = awaitUpstreamPull
-        ? await PlaidTransactionSyncWorkflow.readLastSuccessfulUpdate(
-            connection.plaidAccessToken,
-          )
-        : null;
+      // A reauth must see Plaid run a fresh pull, which
+      // transactions_update_status cannot express, so note where Plaid stands
+      // before the first sync. A saved cursor is what marks a reauth.
+      // last_successful_update can't: Plaid often finishes a new Item's pull
+      // before Link closes, and then won't pull again for hours. Brokerages
+      // never get a cursor, so they don't wait either.
+      const baseline =
+        awaitUpstreamPull && connection.transactionCursor
+          ? await PlaidTransactionSyncWorkflow.readLastSuccessfulUpdate(
+              connection.plaidAccessToken,
+            )
+          : null;
 
       let result = await PlaidTransactionSyncWorkflow.runSync({
         connectionId,

@@ -8,12 +8,18 @@
 import { DBOS, SchedulerMode } from "@dbos-inc/dbos-sdk";
 import { db } from "../db";
 import { accountConnections, syncJobs } from "../schema";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { PlaidTransactionSyncWorkflow } from "./plaid-transaction-sync.workflow";
 import { MxTransactionSyncWorkflow } from "./mx-transaction-sync.workflow";
 import { QuilttTransactionSyncWorkflow } from "./quiltt-transaction-sync.workflow";
 import { shouldStopPolling } from "../lib/sync/disconnect-codes";
 import { scheduledJobsDisabled } from "../lib/utils";
+
+/**
+ * Longer than any sync legitimately runs. Plaid's upstream wait, the longest,
+ * is about 23 minutes.
+ */
+const STALE_JOB_MS = 60 * 60 * 1000;
 
 interface PollResult {
   connectionsProcessed: number;
@@ -62,6 +68,8 @@ export class TransactionPollWorkflow {
       );
       await DBOS.sleep(jitterMs);
     }
+
+    await TransactionPollWorkflow.expireStaleJobs();
 
     const connections = await TransactionPollWorkflow.fetchActiveConnections();
 
@@ -138,6 +146,32 @@ export class TransactionPollWorkflow {
     }
 
     return { connectionsProcessed: connections.length, errors };
+  }
+
+  /**
+   * A pending job keeps its connection out of the poll and shows it as syncing,
+   * and only its workflow can finish it. DBOS recovers a workflow only on the
+   * app version that started it, so a deploy that changes workflow code can
+   * strand a job as pending for good.
+   */
+  @DBOS.step()
+  static async expireStaleJobs() {
+    const expired = await db
+      .update(syncJobs)
+      .set({ status: "expired", completedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(syncJobs.status, "pending"),
+          lt(syncJobs.createdAt, new Date(Date.now() - STALE_JOB_MS)),
+        ),
+      )
+      .returning({ connectionId: syncJobs.accountConnectionId });
+
+    if (expired.length > 0) {
+      DBOS.logger.warn(
+        `Expired ${expired.length} stranded sync job(s) for connection(s): ${expired.map((j) => j.connectionId).join(", ")}`,
+      );
+    }
   }
 
   @DBOS.step()
