@@ -8,12 +8,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockTransactionsSync = vi.fn();
 const mockItemGet = vi.fn();
 const mockAccountsGet = vi.fn();
+const mockItemRemove = vi.fn();
 
 vi.mock("./plaid.client", () => ({
   plaidClient: {
     transactionsSync: mockTransactionsSync,
     itemGet: mockItemGet,
     accountsGet: mockAccountsGet,
+    itemRemove: mockItemRemove,
   },
 }));
 
@@ -463,5 +465,33 @@ describe("PlaidService.getItemStatus", () => {
     expect(result.lastFailedUpdate?.toISOString()).toBe(
       "2026-04-28T11:49:11.000Z",
     );
+  });
+});
+
+describe("PlaidService.itemRemove", () => {
+  beforeEach(() => {
+    mockItemRemove.mockReset();
+  });
+
+  it("confirms a removal", async () => {
+    mockItemRemove.mockResolvedValueOnce({ data: {} });
+
+    await expect(plaidService.itemRemove("token")).resolves.toBe(true);
+  });
+
+  it("counts an Item that's already gone as removed", async () => {
+    mockItemRemove.mockRejectedValueOnce(
+      Object.assign(new Error("not found"), { errorCode: "ITEM_NOT_FOUND" }),
+    );
+
+    await expect(plaidService.itemRemove("token")).resolves.toBe(true);
+  });
+
+  it("reports any other failure", async () => {
+    mockItemRemove.mockRejectedValueOnce(
+      Object.assign(new Error("down"), { errorCode: "INTERNAL_SERVER_ERROR" }),
+    );
+
+    await expect(plaidService.itemRemove("token")).resolves.toBe(false);
   });
 });

@@ -176,6 +176,9 @@ class MXService {
       );
     }
 
+    // MX answers a successful DELETE with an empty body.
+    if (response.status === 204) return undefined as T;
+
     return response.json() as Promise<T>;
   }
 
@@ -258,8 +261,11 @@ class MXService {
         method: "DELETE",
       });
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      // Already deleted is what the caller wanted, and retries depend on it.
+      return (
+        err instanceof Error && err.message.startsWith("MX API error: 404")
+      );
     }
   }
 

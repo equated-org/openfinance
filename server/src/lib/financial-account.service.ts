@@ -5,6 +5,7 @@ import {
   institutionRegistry,
   institutionLogoUrl,
   syncJobs,
+  type AccountConnection,
   type FinancialAccount,
   type NewFinancialAccount,
 } from "../schema";
@@ -195,37 +196,10 @@ class FinancialAccountService {
         .where(eq(accountConnections.id, account.accountConnectionId))
         .limit(1);
 
-      if (connection) {
-        try {
-          if (connection.provider === "plaid" && connection.plaidAccessToken) {
-            await plaidService.itemRemove(connection.plaidAccessToken);
-          } else if (connection.provider === "mx" && connection.mxMemberGuid) {
-            await mxService.deleteMember(
-              connection.userId,
-              connection.mxMemberGuid,
-            );
-          } else if (
-            connection.provider === "quiltt" &&
-            connection.quilttConnectionId
-          ) {
-            const [dbUser] = await db
-              .select({ quilttProfileId: userTable.quilttProfileId })
-              .from(userTable)
-              .where(eq(userTable.id, connection.userId))
-              .limit(1);
-            if (dbUser?.quilttProfileId) {
-              await quilttService.disconnectConnection(
-                dbUser.quilttProfileId,
-                connection.quilttConnectionId,
-              );
-            }
-          }
-        } catch (err) {
-          console.error(
-            "Failed to unlink provider connection, proceeding with deletion:",
-            err,
-          );
-        }
+      if (connection && !(await this.unlinkConnection(connection))) {
+        console.error(
+          `Failed to unlink connection ${connection.id}, proceeding with deletion`,
+        );
       }
 
       await db
@@ -234,6 +208,37 @@ class FinancialAccountService {
     }
 
     return account;
+  }
+
+  /** Disconnects the bank at its provider. False means it may still be linked. */
+  async unlinkConnection(connection: AccountConnection): Promise<boolean> {
+    if (connection.provider === "plaid" && connection.plaidAccessToken) {
+      return plaidService.itemRemove(connection.plaidAccessToken);
+    }
+
+    const [owner] = await db
+      .select({
+        mxUserGuid: userTable.mxUserGuid,
+        quilttProfileId: userTable.quilttProfileId,
+      })
+      .from(userTable)
+      .where(eq(userTable.id, connection.userId))
+      .limit(1);
+
+    if (connection.provider === "mx" && connection.mxMemberGuid) {
+      return owner?.mxUserGuid
+        ? mxService.deleteMember(owner.mxUserGuid, connection.mxMemberGuid)
+        : false;
+    }
+    if (connection.provider === "quiltt" && connection.quilttConnectionId) {
+      return owner?.quilttProfileId
+        ? quilttService.disconnectConnection(
+            owner.quilttProfileId,
+            connection.quilttConnectionId,
+          )
+        : false;
+    }
+    return true;
   }
 
   async getAccountsByConnectionId(

@@ -1,5 +1,14 @@
 import { randomUUID } from "crypto";
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  vi,
+} from "vitest";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db";
@@ -48,10 +57,16 @@ vi.mock("$lib/sync/mx.service", () => ({
   mxService: { deleteMember: vi.fn().mockResolvedValue(true) },
 }));
 
+vi.mock("$lib/sync/quiltt.service", () => ({
+  quilttService: { disconnectConnection: vi.fn().mockResolvedValue(true) },
+}));
+
 // Import after mocks so the route picks up mocked modules
 const { default: meRoutes } = await import("./me.js");
 const { billingService } = await import("$lib/billing");
 const { plaidService } = await import("$lib/sync/plaid.service");
+const { mxService } = await import("$lib/sync/mx.service");
+const { quilttService } = await import("$lib/sync/quiltt.service");
 
 const app = new Hono();
 app.route("/api/me", meRoutes);
@@ -246,80 +261,104 @@ describe("DELETE /api/me/delete-account", () => {
     expect(plaidService.itemRemove).toHaveBeenCalledWith(testAccessToken);
   });
 
-  it("succeeds even if provider cleanup fails", async () => {
-    const failUserId = `test-me-fail-${randomUUID().slice(0, 8)}`;
+  describe("provider disconnects", () => {
+    const otherUserId = `test-me-links-${randomUUID().slice(0, 8)}`;
+    let connectionId: number;
 
-    // Override the auth mock for this test
-    const { requireSession } = await import("../lib/middleware");
-    (requireSession as any).mockImplementation((c: any, next: any) => {
-      c.set("user", {
-        id: failUserId,
-        name: "Fail User",
-        email: `${failUserId}@test.com`,
+    beforeEach(async () => {
+      const { requireSession } = await import("../lib/middleware");
+      (requireSession as any).mockImplementation((c: any, next: any) => {
+        c.set("user", {
+          id: otherUserId,
+          name: "Links User",
+          email: `${otherUserId}@test.com`,
+        });
+        return next();
       });
-      return next();
-    });
+      vi.mocked(billingService.cancelSubscription).mockClear();
 
-    // Seed minimal data
-    await db.insert(user).values({
-      id: failUserId,
-      name: "Fail User",
-      email: `${failUserId}@test.com`,
-      emailVerified: false,
-    });
-
-    const [registry] = await db
-      .insert(institutionRegistry)
-      .values({
-        name: "Fail Test Bank",
-        logo: "https://logo.png",
-        url: "https://failtest.com",
-        countryCode: "US",
-        lastSynced: new Date(),
-      })
-      .returning();
-
-    await db.insert(accountConnections).values({
-      userId: failUserId,
-      provider: "plaid",
-      institutionRegistryId: registry.id,
-      plaidItemId: `item_fail_${randomUUID().slice(0, 8)}`,
-      plaidAccessToken: `access_fail_${randomUUID()}`,
-    });
-
-    // Make plaid throw
-    (plaidService.itemRemove as any).mockRejectedValueOnce(
-      new Error("Plaid API error"),
-    );
-
-    const res = await app.request("/api/me/delete-account", {
-      method: "DELETE",
-    });
-    expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body).toEqual({ success: true });
-
-    // User should still be deleted despite provider error
-    const remaining = await db
-      .select()
-      .from(user)
-      .where(eq(user.id, failUserId));
-    expect(remaining).toHaveLength(0);
-
-    // Cleanup shared registry
-    await db
-      .delete(institutionRegistry)
-      .where(eq(institutionRegistry.id, registry.id));
-
-    // Restore mock for other tests
-    (requireSession as any).mockImplementation((c: any, next: any) => {
-      c.set("user", {
-        id: testUserId,
-        name: "Test User",
-        email: `${testUserId}@test.com`,
+      await db.insert(user).values({
+        id: otherUserId,
+        name: "Links User",
+        email: `${otherUserId}@test.com`,
+        emailVerified: false,
+        mxUserGuid: "USR-from-mx",
+        quilttProfileId: "prf-from-quiltt",
       });
-      return next();
+      const rows = await db
+        .insert(accountConnections)
+        .values([
+          {
+            userId: otherUserId,
+            provider: "plaid",
+            plaidItemId: `item_${randomUUID()}`,
+            plaidAccessToken: `access_${randomUUID()}`,
+          },
+          {
+            userId: otherUserId,
+            provider: "mx",
+            mxMemberGuid: `MBR-${randomUUID()}`,
+          },
+          {
+            userId: otherUserId,
+            provider: "quiltt",
+            quilttConnectionId: `conn-${randomUUID()}`,
+          },
+        ])
+        .returning();
+      connectionId = rows[0].id;
+    });
+
+    afterEach(async () => {
+      await db
+        .delete(accountConnections)
+        .where(eq(accountConnections.userId, otherUserId));
+      await db.delete(user).where(eq(user.id, otherUserId));
+    });
+
+    it("disconnects every provider with its own ids", async () => {
+      const [, mx, quiltt] = await db
+        .select()
+        .from(accountConnections)
+        .where(eq(accountConnections.userId, otherUserId))
+        .orderBy(accountConnections.id);
+
+      const res = await app.request("/api/me/delete-account", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(200);
+      expect(mxService.deleteMember).toHaveBeenCalledWith(
+        "USR-from-mx",
+        mx.mxMemberGuid,
+      );
+      expect(quilttService.disconnectConnection).toHaveBeenCalledWith(
+        "prf-from-quiltt",
+        quiltt.quilttConnectionId,
+      );
+      expect(
+        await db.select().from(user).where(eq(user.id, otherUserId)),
+      ).toHaveLength(0);
+    });
+
+    it("keeps the account and its token when a bank can't be disconnected", async () => {
+      vi.mocked(plaidService.itemRemove).mockResolvedValueOnce(false);
+
+      const res = await app.request("/api/me/delete-account", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toHaveProperty("error");
+      expect(
+        await db.select().from(user).where(eq(user.id, otherUserId)),
+      ).toHaveLength(1);
+      const [connection] = await db
+        .select()
+        .from(accountConnections)
+        .where(eq(accountConnections.id, connectionId));
+      expect(connection.plaidAccessToken).toBeTruthy();
+      expect(billingService.cancelSubscription).not.toHaveBeenCalled();
     });
   });
 });

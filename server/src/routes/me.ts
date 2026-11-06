@@ -9,8 +9,7 @@ import {
 } from "../schema";
 import { eq } from "drizzle-orm";
 import { billingService } from "$lib/billing";
-import { plaidService } from "$lib/sync/plaid.service";
-import { mxService } from "$lib/sync/mx.service";
+import { financialAccountService } from "$lib/financial-account.service";
 
 const meRoutes = new Hono<AuthEnv>();
 
@@ -32,7 +31,26 @@ meRoutes.post("/dismiss-onboarding", async (c) => {
 meRoutes.delete("/delete-account", async (c) => {
   const user = c.get("user");
 
-  // 1. Cancel Stripe subscription if active
+  // 1. Disconnect banks first. Their tokens are deleted with the rows below,
+  // so a link that fails after that could never be retried.
+  const connections = await db
+    .select()
+    .from(accountConnections)
+    .where(eq(accountConnections.userId, user.id));
+
+  for (const connection of connections) {
+    if (!(await financialAccountService.unlinkConnection(connection))) {
+      return c.json(
+        {
+          error:
+            "We couldn't disconnect one of your banks, so your account wasn't deleted. Please try again.",
+        },
+        502,
+      );
+    }
+  }
+
+  // 2. Cancel Stripe subscription if active
   try {
     const plan = await billingService.getUserPlan(user.id);
     if (plan.stripeSubscriptionId) {
@@ -43,30 +61,6 @@ meRoutes.delete("/delete-account", async (c) => {
       "Failed to cancel Stripe subscription, proceeding with deletion:",
       err,
     );
-  }
-
-  // 2. Clean up provider connections (best-effort)
-  const connections = await db
-    .select()
-    .from(accountConnections)
-    .where(eq(accountConnections.userId, user.id));
-
-  for (const connection of connections) {
-    try {
-      if (connection.provider === "plaid" && connection.plaidAccessToken) {
-        await plaidService.itemRemove(connection.plaidAccessToken);
-      } else if (connection.provider === "mx" && connection.mxMemberGuid) {
-        await mxService.deleteMember(
-          connection.userId,
-          connection.mxMemberGuid,
-        );
-      }
-    } catch (err) {
-      console.error(
-        "Failed to unlink provider connection, proceeding with deletion:",
-        err,
-      );
-    }
   }
 
   // 3. Delete auth tables (no cascade on user FK)

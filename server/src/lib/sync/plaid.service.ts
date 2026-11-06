@@ -366,8 +366,11 @@ class PlaidService {
       await plaidClient.itemRemove({ access_token: accessToken });
       return true;
     } catch (err) {
+      const failure = readFailure(err);
+      // Already removed is what the caller wanted, and retries depend on it.
+      if (failure.errorCode === "ITEM_NOT_FOUND") return true;
       // The Item keeps billing until removed, so this shouldn't pass quietly.
-      console.warn(`Plaid Item removal failed: ${readFailure(err).message}`);
+      console.warn(`Plaid Item removal failed: ${failure.message}`);
       return false;
     }
   }
