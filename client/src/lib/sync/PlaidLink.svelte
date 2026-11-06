@@ -41,57 +41,48 @@
     onExit();
   }
 
-  export async function initiatePlaidLink(institutionId?: string) {
-    await loadPlaidSdk();
+  async function openLink(
+    getLinkToken: () => Promise<{ link_token: string }>,
+    institutionId?: string,
+  ) {
+    try {
+      await loadPlaidSdk();
+      const { link_token } = await getLinkToken();
 
-    const { link_token } = await createPlaidLinkToken();
+      handler = window.Plaid.create({
+        token: link_token,
+        onSuccess: async (publicToken, metadata) => {
+          try {
+            await exchangePlaidPublicToken(
+              publicToken,
+              metadata.institution?.institution_id ?? institutionId,
+            );
+            onAccountLinked();
+            onSyncStarted();
+          } catch (err) {
+            console.error("Failed to exchange token:", err);
+            toast.error("Failed to connect account");
+          }
+        },
+        onExit: handleExit,
+        onEvent: () => {},
+      });
 
-    handler = window.Plaid.create({
-      token: link_token,
-      onSuccess: async (publicToken, metadata) => {
-        try {
-          await exchangePlaidPublicToken(
-            publicToken,
-            metadata.institution?.institution_id ?? institutionId,
-          );
-          onAccountLinked();
-          onSyncStarted();
-        } catch (err) {
-          console.error("Failed to exchange token:", err);
-          toast.error("Failed to connect account");
-        }
-      },
-      onExit: handleExit,
-      onEvent: (_eventName, _metadata) => {},
-    });
-
-    handler.open();
+      handler.open();
+    } catch (err) {
+      console.error("Failed to open Plaid Link:", err);
+      toast.error("Couldn't open Plaid", {
+        description:
+          "Please try again. If this keeps happening, remove the account and add it again.",
+      });
+    }
   }
 
-  export async function initiateReauthentication(accountId: number) {
-    await loadPlaidSdk();
+  export function initiatePlaidLink(institutionId?: string) {
+    return openLink(createPlaidLinkToken, institutionId);
+  }
 
-    const { link_token } = await createPlaidLinkTokenForUpdate(accountId);
-
-    handler = window.Plaid.create({
-      token: link_token,
-      onSuccess: async (publicToken, metadata) => {
-        try {
-          await exchangePlaidPublicToken(
-            publicToken,
-            metadata.institution?.institution_id,
-          );
-          onAccountLinked();
-          onSyncStarted();
-        } catch (err) {
-          console.error("Failed to exchange token during reauth:", err);
-          toast.error("Failed to reconnect account");
-        }
-      },
-      onExit: handleExit,
-      onEvent: (_eventName, _metadata) => {},
-    });
-
-    handler.open();
+  export function initiateReauthentication(accountId: number) {
+    return openLink(() => createPlaidLinkTokenForUpdate(accountId));
   }
 </script>

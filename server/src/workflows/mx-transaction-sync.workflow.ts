@@ -238,12 +238,6 @@ export class MxTransactionSyncWorkflow {
         `MX transaction sync failed for connection ${connectionId}: ${message}`,
       );
 
-      await MxTransactionSyncWorkflow.notifyDisconnect(
-        userId,
-        connectionId,
-        message,
-      );
-
       return null;
     }
   }

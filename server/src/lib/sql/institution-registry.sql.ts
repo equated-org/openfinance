@@ -37,30 +37,6 @@ export const institutionRegistry = pgTable(
       oauth: boolean;
       products: string[];
       routingNumbers: string[];
-
-      // Connection health data
-      connectionHealth?: {
-        item_logins?: {
-          status: "HEALTHY" | "DEGRADED" | "DOWN";
-          last_status_change: string;
-          breakdown: {
-            success: number;
-            error_institution: number;
-            error_plaid: number;
-          };
-        };
-        transactions_updates?: {
-          status: "HEALTHY" | "DEGRADED" | "DOWN";
-          last_status_change: string;
-          breakdown: {
-            success: number;
-            error_institution: number;
-            error_plaid: number;
-            refresh_interval?: "NORMAL" | "DELAYED";
-          };
-        };
-        lastUpdated: string;
-      };
     } | null>(),
 
     mxData: json("mx_data").$type<{

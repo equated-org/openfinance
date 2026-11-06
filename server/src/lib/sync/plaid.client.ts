@@ -1,3 +1,4 @@
+import axios from "axios";
 import {
   Configuration,
   PlaidApi,
@@ -28,39 +29,58 @@ const configuration = new Configuration({
   },
 });
 
-export const plaidClient = new PlaidApi(configuration);
-
-export const PLAID_COUNTRY_CODES = [CountryCode.Us, CountryCode.Ca];
-
-export interface PlaidApiError {
-  errorCode?: string;
-  errorType?: string;
-  message: string;
-}
-
 /**
- * The Plaid SDK is axios-based, so a rejected request surfaces as an AxiosError
- * whose `message` is only ever "Request failed with status code 400". The real
- * Plaid error code lives in the response body — read it from there, or the
+ * What every failed Plaid call rejects with, in place of the SDK's AxiosError.
+ *
+ * That error carries the whole request, including the PLAID-SECRET header and
+ * the access token, and DBOS stores a failed step's error while Hono logs an
+ * uncaught one. Its message is also only ever "Request failed with status code
+ * 400": Plaid's real code is in the response body, and without it a broken
  * connection looks like an anonymous 400 and gets retried forever.
  */
-export function extractPlaidError(err: unknown): PlaidApiError {
-  const fallback = err instanceof Error ? err.message : "Unknown sync error";
+export class PlaidRequestError extends Error {
+  constructor(
+    message: string,
+    readonly errorCode?: string,
+  ) {
+    super(message);
+    this.name = "PlaidRequestError";
+  }
+}
+
+function toPlaidRequestError(err: unknown): PlaidRequestError {
   const data = (err as { response?: { data?: unknown } })?.response?.data as
     | {
         error_code?: string;
-        error_type?: string;
         error_message?: string;
         display_message?: string;
       }
     | undefined;
+  const fallback = err instanceof Error ? err.message : "Unknown Plaid error";
 
-  if (!data?.error_code) return { message: fallback };
+  return new PlaidRequestError(
+    data?.error_message ?? data?.display_message ?? fallback,
+    data?.error_code,
+  );
+}
 
+const http = axios.create();
+http.interceptors.response.use(undefined, (err) =>
+  Promise.reject(toPlaidRequestError(err)),
+);
+
+export const plaidClient = new PlaidApi(configuration, undefined, http);
+
+export const PLAID_COUNTRY_CODES = [CountryCode.Us, CountryCode.Ca];
+
+/** No code means the failure never reached Plaid: a network error, or a bug. */
+export function extractPlaidError(err: unknown): {
+  errorCode?: string;
+  message: string;
+} {
   return {
-    errorCode: data.error_code,
-    errorType: data.error_type,
-    message: data.error_message ?? data.display_message ?? fallback,
+    errorCode: (err as { errorCode?: string } | null)?.errorCode,
+    message: err instanceof Error ? err.message : "Unknown sync error",
   };
 }
 

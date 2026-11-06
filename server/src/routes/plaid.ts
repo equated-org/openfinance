@@ -117,6 +117,9 @@ plaidRoutes.post(
       // New connection: check billing limits
       const connectCheck = await billingService.checkCanConnect(user.id);
       if (!connectCheck.allowed) {
+        // The Item already exists at Plaid and bills every month. Nothing keeps
+        // this token, so this is the only chance to remove it.
+        await plaidService.itemRemove(accessToken);
         return c.json(
           {
             error: "upgrade_required",
@@ -127,16 +130,9 @@ plaidRoutes.post(
       }
     }
 
-    // Get institution info and registry ID
-    let registryId: number | null = null;
-    if (institution_id) {
-      try {
-        await plaidService.getInstitutionInfo(institution_id);
-      } catch {
-        // ignore - use defaults
-      }
-      registryId = await plaidService.findRegistryId(institution_id);
-    }
+    const registryId = institution_id
+      ? await plaidService.findRegistryId(institution_id)
+      : null;
 
     await plaidService.connectAndPerformInitialSync({
       userId: user.id,

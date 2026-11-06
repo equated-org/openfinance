@@ -11,12 +11,13 @@ const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Plaid pulls from the bank asynchronously after a Link connect or reauth, so
- * the first /transactions/sync right afterwards almost always returns nothing.
+ * the first /transactions/sync right afterwards can come back empty or partial.
  * Until we consume the SYNC_UPDATES_AVAILABLE webhook, re-check on a backoff
- * instead of declaring success on an empty first page.
+ * instead of declaring success on an empty first page. Most pulls land within
+ * seconds, so it starts short.
  */
 const UPSTREAM_PULL_RETRY_DELAYS_MS = [
-  30_000, 60_000, 120_000, 300_000, 600_000,
+  5_000, 10_000, 20_000, 30_000, 60_000, 120_000, 300_000, 600_000,
 ];
 
 const UPSTREAM_NOT_READY_MESSAGE =
@@ -51,12 +52,6 @@ function isPullComplete(params: {
   );
 }
 
-type FreshnessResult =
-  | { kind: "fresh" }
-  | { kind: "stale"; userMessage: string; technicalMessage: string }
-  | { kind: "item_error"; userMessage: string; technicalMessage: string }
-  | { kind: "unknown" };
-
 const STALE_USER_MESSAGE =
   "Your bank hasn't sent new transactions in a while. Please reconnect to resume syncing.";
 const ITEM_ERROR_USER_MESSAGE =
@@ -78,7 +73,6 @@ export class PlaidTransactionSyncWorkflow {
     connectionId: number;
     accessToken: string;
     cursor: string | null;
-    waitForInitialPull?: boolean;
   }) {
     return plaidService.syncTransactions(params);
   }
@@ -142,10 +136,11 @@ export class PlaidTransactionSyncWorkflow {
       .where(eq(syncJobs.id, syncJobId));
   }
 
+  /** What's wrong with the Item, if it needs the user. */
   @DBOS.step()
   static async checkItemFreshness(
     accessToken: string,
-  ): Promise<FreshnessResult> {
+  ): Promise<{ code: string; message: string } | null> {
     let status: Awaited<ReturnType<typeof plaidService.getItemStatus>>;
     try {
       status = await plaidService.getItemStatus(accessToken);
@@ -153,19 +148,15 @@ export class PlaidTransactionSyncWorkflow {
       DBOS.logger.warn(
         `Item status check failed: ${err instanceof Error ? err.message : err}`,
       );
-      return { kind: "unknown" };
+      return null;
     }
 
-    if (status.itemError) {
-      const code =
-        (status.itemError as { error_code?: string }).error_code ?? "ITEM_ERROR";
-      const technicalMessage = `Plaid item error: ${code}`;
-      DBOS.logger.info(technicalMessage);
-      return {
-        kind: "item_error",
-        userMessage: ITEM_ERROR_USER_MESSAGE,
-        technicalMessage,
-      };
+    // Report Plaid's real code, and only one the user can clear: parking a
+    // connection over a passing outage would stop it recovering by itself.
+    const itemErrorCode = status.itemError?.error_code;
+    if (itemErrorCode && needsUserAction(itemErrorCode)) {
+      DBOS.logger.info(`Plaid item error: ${itemErrorCode}`);
+      return { code: itemErrorCode, message: ITEM_ERROR_USER_MESSAGE };
     }
 
     const { lastSuccessfulUpdate, lastFailedUpdate, itemCreatedAt } = status;
@@ -174,22 +165,17 @@ export class PlaidTransactionSyncWorkflow {
       (lastSuccessfulUpdate === null ||
         lastFailedUpdate > lastSuccessfulUpdate);
 
-    if (!isFailing) return { kind: "fresh" };
+    if (!isFailing) return null;
 
     const baseline = lastSuccessfulUpdate ?? itemCreatedAt;
     const ageMs = baseline ? Date.now() - baseline.getTime() : Infinity;
-    if (ageMs <= STALE_THRESHOLD_MS) return { kind: "fresh" };
+    if (ageMs <= STALE_THRESHOLD_MS) return null;
 
-    const ageHours = Math.round(ageMs / (60 * 60 * 1000));
-    const technicalMessage =
+    DBOS.logger.info(
       `Plaid upstream pull stale: last_successful_update=${lastSuccessfulUpdate?.toISOString() ?? "never"} ` +
-      `(${ageHours}h ago), last_failed_update=${lastFailedUpdate?.toISOString() ?? "never"}`;
-    DBOS.logger.info(technicalMessage);
-    return {
-      kind: "stale",
-      userMessage: STALE_USER_MESSAGE,
-      technicalMessage,
-    };
+        `(${Math.round(ageMs / (60 * 60 * 1000))}h ago), last_failed_update=${lastFailedUpdate?.toISOString() ?? "never"}`,
+    );
+    return { code: "STALE_DATA", message: STALE_USER_MESSAGE };
   }
 
   @DBOS.step()
@@ -279,7 +265,6 @@ export class PlaidTransactionSyncWorkflow {
         connectionId,
         accessToken: connection.plaidAccessToken,
         cursor: connection.transactionCursor,
-        waitForInitialPull: awaitUpstreamPull,
       });
 
       if (awaitUpstreamPull) {
@@ -347,25 +332,19 @@ export class PlaidTransactionSyncWorkflow {
       // it right after Link: the item legitimately looks stale until Plaid's
       // first post-reauth pull lands.
       if (connection.transactionCursor !== null && !awaitUpstreamPull) {
-        const freshness =
-          await PlaidTransactionSyncWorkflow.checkItemFreshness(
-            connection.plaidAccessToken,
-          );
-        if (
-          freshness.kind === "stale" ||
-          freshness.kind === "item_error"
-        ) {
-          const errorCode =
-            freshness.kind === "item_error" ? "ITEM_LOGIN_REQUIRED" : "STALE_DATA";
+        const failure = await PlaidTransactionSyncWorkflow.checkItemFreshness(
+          connection.plaidAccessToken,
+        );
+        if (failure) {
           await PlaidTransactionSyncWorkflow.markError(
             syncJobId,
-            freshness.userMessage,
-            errorCode,
+            failure.message,
+            failure.code,
           );
           await PlaidTransactionSyncWorkflow.notifyDisconnect(
             input.userId,
             connectionId,
-            freshness.userMessage,
+            failure.message,
           );
           return null;
         }
@@ -384,9 +363,7 @@ export class PlaidTransactionSyncWorkflow {
       }
       return result;
     } catch (err) {
-      // Plaid's own error_code, not the axios message, which is only ever
-      // "Request failed with status code 400". Absent means the failure never
-      // reached Plaid (network, or a bug here), so it stays uncoded and the
+      // An uncoded failure never reached Plaid (network, or a bug here), so the
       // poller retries it rather than parking the connection.
       const { errorCode, message } = extractPlaidError(err);
 
