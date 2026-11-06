@@ -6,6 +6,24 @@ export type SyncProvider = "plaid" | "mx" | "quiltt";
  */
 export type CatalogProvider = Exclude<SyncProvider, "quiltt">;
 
+/** What Plaid reports for one product at an institution. */
+interface ProductHealth {
+  status: string;
+  last_status_change: string;
+  breakdown: {
+    success: number;
+    error_institution: number;
+    error_plaid: number;
+    refresh_interval?: string;
+  };
+}
+
+export interface ConnectionHealth {
+  item_logins?: ProductHealth | null;
+  transactions_updates?: ProductHealth | null;
+  lastUpdated: string;
+}
+
 export interface InstitutionType {
   id: string;
   name: string;
@@ -19,6 +37,7 @@ export interface InstitutionType {
     oauth: boolean;
     products: string[];
     routingNumbers: string[];
+    connectionHealth?: ConnectionHealth;
   } | null;
   mxData?: {
     institutionCode: string;

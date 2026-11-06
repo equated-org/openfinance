@@ -7,6 +7,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { ConnectionHealth } from "@openfinance/shared";
 
 /**
  * Registry of institutions from every provider. Plaid and MX rows mirror their
@@ -37,6 +38,7 @@ export const institutionRegistry = pgTable(
       oauth: boolean;
       products: string[];
       routingNumbers: string[];
+      connectionHealth?: ConnectionHealth;
     } | null>(),
 
     mxData: json("mx_data").$type<{

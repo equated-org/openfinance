@@ -4,6 +4,7 @@ import { InstitutionSyncWorkflow } from "./institution-sync.workflow";
 
 const mockPlaidSyncer = {
   refreshInstitutions: vi.fn(),
+  updateConnectionHealthStatus: vi.fn(),
 };
 
 const mockMxSyncer = {
@@ -45,6 +46,7 @@ describe("InstitutionSyncWorkflow", () => {
   it("should call all steps on success", async () => {
     mockPlaidSyncer.refreshInstitutions.mockResolvedValue(undefined);
     mockMxSyncer.refreshInstitutions.mockResolvedValue(undefined);
+    mockPlaidSyncer.updateConnectionHealthStatus.mockResolvedValue(undefined);
 
     const handle = await DBOS.startWorkflow(
       InstitutionSyncWorkflow,
@@ -54,9 +56,11 @@ describe("InstitutionSyncWorkflow", () => {
 
     expect(result.success).toBe(true);
     expect(result.providersRefreshed).toEqual(["plaid", "mx"]);
+    expect(result.healthStatusUpdated).toBe(true);
     expect(result.errors).toBeUndefined();
     expect(mockPlaidSyncer.refreshInstitutions).toHaveBeenCalledOnce();
     expect(mockMxSyncer.refreshInstitutions).toHaveBeenCalledOnce();
+    expect(mockPlaidSyncer.updateConnectionHealthStatus).toHaveBeenCalledOnce();
   });
 
   it("should handle partial failure gracefully", async () => {
@@ -64,6 +68,7 @@ describe("InstitutionSyncWorkflow", () => {
       new Error("Plaid API error"),
     );
     mockMxSyncer.refreshInstitutions.mockResolvedValue(undefined);
+    mockPlaidSyncer.updateConnectionHealthStatus.mockResolvedValue(undefined);
 
     const handle = await DBOS.startWorkflow(
       InstitutionSyncWorkflow,
@@ -73,6 +78,7 @@ describe("InstitutionSyncWorkflow", () => {
 
     expect(result.success).toBe(false);
     expect(result.providersRefreshed).toEqual(["mx"]);
+    expect(result.healthStatusUpdated).toBe(true);
     expect(result.errors).toHaveLength(1);
     expect(result.errors![0]).toContain("Plaid");
   });
@@ -84,6 +90,9 @@ describe("InstitutionSyncWorkflow", () => {
     mockMxSyncer.refreshInstitutions.mockRejectedValue(
       new Error("MX API error"),
     );
+    mockPlaidSyncer.updateConnectionHealthStatus.mockRejectedValue(
+      new Error("Health check error"),
+    );
 
     const handle = await DBOS.startWorkflow(
       InstitutionSyncWorkflow,
@@ -93,6 +102,7 @@ describe("InstitutionSyncWorkflow", () => {
 
     expect(result.success).toBe(false);
     expect(result.providersRefreshed).toEqual([]);
-    expect(result.errors).toHaveLength(2);
+    expect(result.healthStatusUpdated).toBe(false);
+    expect(result.errors).toHaveLength(3);
   });
 });
