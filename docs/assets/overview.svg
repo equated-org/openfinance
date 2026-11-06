@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="350" viewBox="0 0 1200 350" role="img" aria-labelledby="title description">
+  <title id="title">Your finances, connected to your AI</title>
+  <desc id="description">Financial accounts connect through Plaid, MX, and Quiltt to OpenFinance. Your AI accesses accounts, balances, and transactions through MCP, a Skill, or the REST API.</desc>
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#4a90e2"/>
+      <stop offset="1" stop-color="#00c897"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop stop-color="#123b43" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#0d1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="350" rx="20" fill="#0d1420"/>
+  <ellipse cx="600" cy="175" rx="410" ry="220" fill="url(#glow)"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="44" y="46" fill="#8ba3bc" font-size="12" font-weight="600" letter-spacing="2">ONE CONNECTION. MORE POSSIBILITIES.</text>
+    <path d="M350 174H425M775 174H850" fill="none" stroke="#4b7292" stroke-width="2" stroke-dasharray="5 6"/>
+    <path d="m417 169 8 5-8 5m425-10 8 5-8 5" fill="none" stroke="#71b9c8" stroke-width="2"/>
+    <rect x="44" y="82" width="306" height="184" rx="14" fill="#141f2e" stroke="#2c3c50"/>
+    <text x="68" y="119" fill="#e8f0f8" font-size="22" font-weight="600">Your financial accounts</text>
+    <text x="68" y="150" fill="#a5b6c9" font-size="15">Banking · Credit cards</text>
+    <path d="M68 173H326" stroke="#2c3c50"/>
+    <text x="68" y="202" fill="#a5b6c9" font-size="13">CONNECTED THROUGH</text>
+    <text x="68" y="237" fill="#e8f0f8" font-size="18">Plaid · MX · Quiltt</text>
+    <rect x="425" y="82" width="350" height="184" rx="14" fill="#122a35" stroke="#39b6b5"/>
+    <circle cx="460" cy="116" r="11" fill="none" stroke="url(#brand)" stroke-width="4"/>
+    <text x="484" y="124" fill="#f0f7fc" font-size="25" font-weight="700">OpenFinance</text>
+    <text x="451" y="163" fill="#b4cbd5" font-size="17">Accounts. Balances. Transactions.</text>
+    <path d="M451 184H749" stroke="#2c505c"/>
+    <text x="451" y="214" fill="#69ddc0" font-size="15" font-weight="600">Hosted or self-hosted</text>
+    <text x="451" y="241" fill="#b4cbd5" font-size="14">Your data, in one place.</text>
+    <rect x="850" y="82" width="306" height="184" rx="14" fill="#141f2e" stroke="#2c3c50"/>
+    <text x="874" y="119" fill="#e8f0f8" font-size="22" font-weight="600">Your AI</text>
+    <text x="874" y="150" fill="#a5b6c9" font-size="15">Claude · ChatGPT · Your agent</text>
+    <path d="M874 173H1132" stroke="#2c3c50"/>
+    <text x="874" y="202" fill="#a5b6c9" font-size="13">CONNECT WITH</text>
+    <text x="874" y="237" fill="#e8f0f8" font-size="18">MCP · Skill · REST API</text>
+    <text x="600" y="312" fill="#a5b6c9" font-size="15" text-anchor="middle">Read-only financial tools. Bring the assistant you already use.</text>
+  </g>
+</svg>

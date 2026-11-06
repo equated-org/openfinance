@@ -5,8 +5,8 @@
 ### Prerequisites
 
 - Node.js 22+
-- pnpm
-- Docker
+- pnpm 10.12.4 (the version pinned in `package.json`)
+- Docker with Docker Compose
 
 ### 1. Install dependencies
 
@@ -22,15 +22,19 @@ cp .env.example .env
 
 Fill in your Google OAuth credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`). Get these from [Google Cloud Console](https://console.cloud.google.com/apis/credentials) — add `http://localhost:3000/api/auth/callback/google` as an authorized redirect URI.
 
+Set `BETTER_AUTH_SECRET` to a random secret and keep `APP_URL=http://localhost:6100` for the local web app. Configure the provider credentials in `.env` for the connections you want to use: Plaid, MX, or Quiltt. These require your own provider accounts; cloning the repository does not supply bank connectivity.
+
+Follow the [provider setup guide](providers.md) for Plaid, MX, and Mastercard via Quiltt, including environment variables, institution imports, sandbox tests, and production access.
 
 ### 3. Start the app
 
 ```sh
+docker compose up -d db
 pnpm db:migrate
 pnpm dev
 ```
 
-This starts Postgres in Docker, the API server on `:3000`, and SvelteKit on `:5173` (proxies `/api` to server).
+Start Postgres before running migrations; wait until it is accepting connections. `pnpm dev` then starts the Docker Compose services, the API server on `:3000`, SvelteKit on `:6100` (proxies `/api` to the server), and Storybook on `:6006`.
 
 ### Adding shadcn-svelte components
 
@@ -58,14 +62,16 @@ Other scripts live under `server/src/scripts/` and can be run the same way: `npx
 
 ### Vitest
 
-From the repo root:
+Start the dedicated test database, then run the server tests from the repo root:
 
 ```sh
-cd server
-pnpm vitest run
+docker compose up -d test-db
+pnpm --filter server test
 ```
 
-Run tests matching a filename:
+The test setup uses the `openfin_test` database on port `5433` by default. Keep it separate from your development or production database; tests reset their database state.
+
+From `server/`, run tests matching a filename:
 
 ```sh
 pnpm vitest run billing
