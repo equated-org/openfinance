@@ -21,6 +21,7 @@
     TooltipTrigger,
   } from "$lib/components/ui/tooltip";
   import BackButton from "$lib/components/ui/BackButton.svelte";
+  import { Badge } from "$lib/components/ui/badge";
   import InstitutionLogo from "$lib/components/InstitutionLogo.svelte";
   import type { InstitutionType, CatalogProvider } from "@openfinance/shared";
   import { extractBaseDomain } from "$lib/url";
@@ -30,19 +31,9 @@
     mx: { name: "MX", url: "mx.com" },
   };
 
-  // The chooser only opens for a bank both catalogs carry.
-  const PROVIDER_OPTIONS = [
-    {
-      type: "plaid" as const,
-      ...PROVIDERS.plaid,
-      description: "2 years of transaction history. Single authentication.",
-    },
-    {
-      type: "mx" as const,
-      ...PROVIDERS.mx,
-      description: "Requires 2FA twice but very reliable",
-    },
-  ];
+  // Connection health thresholds
+  const PLAID_DISABLE_THRESHOLD = 0.8;
+  const PLAID_WARNING_THRESHOLD = 0.95;
 
   // === PROPS ===
   interface Props {
@@ -81,6 +72,59 @@
     return providers.length > 1
       ? `You can connect to ${name} through more than one secure provider. You'll choose your preferred method on the next step.`
       : `This bank connects securely using ${PROVIDERS[providers[0]].name}.`;
+  }
+
+  /** Plaid's latest numbers for a bank. Most banks have none, which reads as fine. */
+  function plaidStatus(institution: InstitutionType) {
+    const health = institution.plaidData?.connectionHealth;
+    const success = Math.min(
+      health?.item_logins?.breakdown?.success ?? 1,
+      health?.transactions_updates?.breakdown?.success ?? 1,
+    );
+    const hasIssues = success < PLAID_DISABLE_THRESHOLD;
+    return {
+      hasIssues,
+      degraded: success < PLAID_WARNING_THRESHOLD,
+      label: hasIssues ? "Lower Success Rate" : "Some Issues",
+      percent: Math.round(success * 100),
+    };
+  }
+
+  /**
+   * The chooser's options, best first. It only opens for a bank both catalogs
+   * carry, and MX leads once Plaid's success rates for the bank slip.
+   */
+  function getProviderList(institution: InstitutionType) {
+    const { hasIssues: plaidHasIssues, degraded: plaidDegraded } =
+      plaidStatus(institution);
+
+    let plaidDescription =
+      "2 years of transaction history. Single authentication.";
+    if (plaidHasIssues) {
+      plaidDescription =
+        "Some users experience connection issues. May be slower to connect.";
+    } else if (plaidDegraded) {
+      plaidDescription =
+        "Generally reliable, but some issues have been reported.";
+    }
+
+    const plaid = {
+      type: "plaid" as const,
+      ...PROVIDERS.plaid,
+      hasIssues: plaidHasIssues,
+      hasWarning: plaidDegraded,
+      description: plaidDescription,
+    };
+    const mx = {
+      type: "mx" as const,
+      ...PROVIDERS.mx,
+      hasIssues: false,
+      hasWarning: false,
+      description: plaidDegraded
+        ? "Most stable connection available"
+        : "Requires 2FA twice but very reliable",
+    };
+    return plaidDegraded ? [mx, plaid] : [plaid, mx];
   }
 
   // === ACTIONS ===
@@ -143,6 +187,7 @@
     </DialogHeader>
 
     {#if showProviderSelection && selectedInstitution}
+      {@const providers = getProviderList(selectedInstitution)}
       <div class="space-y-3">
         <!-- Provider Selection View -->
         <div class="flex items-center gap-3 p-3 bg-[var(--bg-muted)] rounded-lg">
@@ -156,10 +201,12 @@
         </div>
 
         <div class="space-y-3">
-          {#each PROVIDER_OPTIONS as provider}
+          {#each providers as provider}
             <button
               onclick={() => handleProviderSelection(provider.type)}
-              class="w-full flex items-center justify-between p-4 border border-[var(--border)] rounded-lg transition-colors group hover:bg-[var(--bg-muted)]"
+              class="w-full flex items-center justify-between p-4 border rounded-lg transition-colors group {provider.hasIssues
+                ? 'border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-300'
+                : 'border-[var(--border)] hover:border-[var(--border)] hover:bg-[var(--bg-muted)]'}"
             >
               <div class="flex items-center gap-3">
                 <InstitutionLogo
@@ -168,18 +215,29 @@
                   size="md"
                 />
                 <div class="text-left">
-                  <div class="font-medium text-[var(--text)]">
+                  <div
+                    class="font-medium text-[var(--text)] flex items-center gap-2"
+                  >
                     {provider.name}
+                    {#if provider.hasWarning}
+                      <Badge variant="amber">
+                        {provider.hasIssues
+                          ? "Lower Success Rate"
+                          : "Some Issues"}
+                      </Badge>
+                    {/if}
                   </div>
                   <div class="text-sm text-[var(--text-muted)]">
                     {provider.description}
                   </div>
                 </div>
               </div>
-              <ChevronRight
-                size={16}
-                class="flex-shrink-0 text-[var(--text-muted)]"
-              />
+              {#if !provider.hasIssues}
+                <ChevronRight
+                  size={16}
+                  class="flex-shrink-0 text-[var(--text-muted)]"
+                />
+              {/if}
             </button>
           {/each}
         </div>
@@ -231,6 +289,7 @@
             <div class="space-y-1 w-full">
               <TooltipProvider>
                 {#each institutions as institution}
+                  {@const status = plaidStatus(institution)}
                   <div
                     class="flex items-start gap-2 p-2 rounded-lg transition-colors w-full hover:bg-[var(--bg-muted)] cursor-pointer"
                     onclick={() => handleInstitutionClick(institution)}
@@ -258,7 +317,10 @@
 
                     <div class="flex gap-1 flex-shrink-0 items-center">
                       <Tooltip>
-                        <TooltipTrigger>
+                        <TooltipTrigger class="flex items-center gap-1">
+                          {#if status.degraded}
+                            <Badge variant="amber">{status.label}</Badge>
+                          {/if}
                           {#if institution.providers.length > 1}
                             <span class="text-xs text-[var(--text-muted)]">
                               Multiple options
@@ -275,6 +337,13 @@
                           <p class="max-w-xs text-xs">
                             {providerTooltip(institution)}
                           </p>
+                          {#if status.degraded}
+                            <p class="max-w-xs text-xs mt-1">
+                              Plaid currently reports a {status.percent}% success
+                              rate for this bank, so connecting may take a few
+                              tries.
+                            </p>
+                          {/if}
                         </TooltipContent>
                       </Tooltip>
                     </div>

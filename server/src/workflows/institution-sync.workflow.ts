@@ -8,6 +8,7 @@ interface InstitutionSyncResult {
   success: boolean;
   message: string;
   providersRefreshed: string[];
+  healthStatusUpdated: boolean;
   errors?: string[];
   timestamp: string;
 }
@@ -33,6 +34,7 @@ export class InstitutionSyncWorkflow {
         success: true,
         message: "Skipped: scheduled jobs are disabled",
         providersRefreshed: [],
+        healthStatusUpdated: false,
         timestamp: new Date().toISOString(),
       };
     }
@@ -52,6 +54,7 @@ export class InstitutionSyncWorkflow {
 
     const errors: string[] = [];
     const providersRefreshed: string[] = [];
+    let healthStatusUpdated = false;
 
     // Step 1: Refresh institutions from Plaid
     try {
@@ -77,6 +80,16 @@ export class InstitutionSyncWorkflow {
       DBOS.logger.info("Skipping MX institution sync: MX is not configured");
     }
 
+    // Step 3: Update connection health. Must follow step 1, which clears it.
+    try {
+      await InstitutionSyncWorkflow.updateConnectionHealthStatus();
+      healthStatusUpdated = true;
+    } catch (error: any) {
+      const errorMessage = `Failed to update connection health status: ${error.message}`;
+      DBOS.logger.error(errorMessage);
+      errors.push(errorMessage);
+    }
+
     const success = errors.length === 0;
 
     const result: InstitutionSyncResult = {
@@ -85,12 +98,13 @@ export class InstitutionSyncWorkflow {
         ? "Institution sync completed successfully"
         : `Partial failure: ${errors.length} error(s) occurred`,
       providersRefreshed,
+      healthStatusUpdated,
       errors: errors.length > 0 ? errors : undefined,
       timestamp: new Date().toISOString(),
     };
 
     DBOS.logger.info(
-      `Institution sync workflow completed: success=${success}, providers=${providersRefreshed.join(",")}, errors=${errors.length}`,
+      `Institution sync workflow completed: success=${success}, providers=${providersRefreshed.join(",")}, healthUpdated=${healthStatusUpdated}, errors=${errors.length}`,
     );
 
     return result;
@@ -106,5 +120,11 @@ export class InstitutionSyncWorkflow {
   static async refreshMxInstitutions(): Promise<void> {
     const syncer = new MXInstitutionSyncer();
     await syncer.refreshInstitutions();
+  }
+
+  @DBOS.step()
+  static async updateConnectionHealthStatus(): Promise<void> {
+    const syncer = new PlaidInstitutionSyncer();
+    await syncer.updateConnectionHealthStatus();
   }
 }

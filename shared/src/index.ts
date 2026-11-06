@@ -1,4 +1,5 @@
 export type {
+  ConnectionHealth,
   SyncProvider,
   CatalogProvider,
   InstitutionType,

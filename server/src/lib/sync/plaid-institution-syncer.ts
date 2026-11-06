@@ -1,6 +1,6 @@
 import { db } from "../../db.js";
 import { institutionRegistry } from "$lib/sql/institution-registry.sql";
-import { sql, inArray } from "drizzle-orm";
+import { eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { InstitutionSyncer } from "./institution-syncer.interface";
 import type { NewInstitutionRegistry } from "$lib/sql/institution-registry.sql";
 import {
@@ -8,9 +8,22 @@ import {
   getInstitutionRegistryUpdateColumns,
 } from "./batch-upsert.helpers.js";
 import {
+  plaidClient,
+  PLAID_COUNTRY_CODES,
   streamAllPlaidInstitutions,
   type PlaidInstitution,
 } from "$lib/sync/plaid.client.js";
+import { readFailure } from "$lib/sync/disconnect-codes";
+import { sleep } from "$lib/utils";
+
+/**
+ * With Plaid's response time this is about 150 calls a minute, well under its
+ * limit of 400, so a full run of 10,000 institutions takes over an hour.
+ */
+const HEALTH_REQUEST_INTERVAL_MS = 200;
+
+/** Plaid counts its limit in fixed one-minute windows. */
+const RATE_LIMIT_WAIT_MS = 60_000;
 
 /**
  * Handles syncing institutions from Plaid to the institution registry
@@ -137,6 +150,53 @@ export class PlaidInstitutionSyncer implements InstitutionSyncer {
   }
 
   /**
+   * Stores each institution's health, which Plaid only reports one institution
+   * at a time. Run this after refreshInstitutions, which rewrites plaidData and
+   * so clears it.
+   */
+  async updateConnectionHealthStatus(limit?: number): Promise<void> {
+    const institutions = await db
+      .select({
+        id: institutionRegistry.id,
+        plaidData: institutionRegistry.plaidData,
+      })
+      .from(institutionRegistry)
+      .where(isNotNull(institutionRegistry.plaidData));
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const { id, plaidData } of institutions.slice(0, limit)) {
+      try {
+        const institution = await fetchWithStatus(plaidData!.institutionId);
+
+        const connectionHealth = getConnectionHealth(institution);
+        if (connectionHealth) {
+          await db
+            .update(institutionRegistry)
+            .set({
+              plaidData: { ...plaidData!, connectionHealth },
+              updatedAt: new Date(),
+            })
+            .where(eq(institutionRegistry.id, id));
+          updated++;
+        }
+      } catch (err) {
+        failed++;
+        console.warn(
+          `Health check failed for ${plaidData!.institutionId}: ${readFailure(err).message}`,
+        );
+      }
+
+      await sleep(HEALTH_REQUEST_INTERVAL_MS);
+    }
+
+    console.log(
+      `Stored health for ${updated} of ${institutions.length} Plaid institutions (${failed} failed)`,
+    );
+  }
+
+  /**
    * Convert Plaid institutions to registry format
    */
   private convertPlaidInstitutionsToRegistryFormat(
@@ -160,4 +220,39 @@ export class PlaidInstitutionSyncer implements InstitutionSyncer {
       lastSynced: new Date(),
     }));
   }
+}
+
+/** One institution with its status, waiting out a rate limit to get it. */
+async function fetchWithStatus(institutionId: string) {
+  const request = () =>
+    plaidClient.institutionsGetById({
+      institution_id: institutionId,
+      country_codes: PLAID_COUNTRY_CODES,
+      options: { include_status: true },
+    });
+
+  try {
+    return (await request()).data.institution;
+  } catch (err) {
+    if (readFailure(err).errorCode !== "INSTITUTIONS_GET_BY_ID_LIMIT") throw err;
+
+    console.warn("Plaid rate limit reached, waiting for the next window");
+    await sleep(RATE_LIMIT_WAIT_MS);
+    return (await request()).data.institution;
+  }
+}
+
+/**
+ * Undefined when Plaid has nothing to report: most banks have too little
+ * traffic for it to rate, and it reports nothing at all in the Sandbox.
+ */
+export function getConnectionHealth(institution: PlaidInstitution) {
+  const { item_logins, transactions_updates } = institution.status ?? {};
+  if (!item_logins && !transactions_updates) return undefined;
+
+  return {
+    item_logins,
+    transactions_updates,
+    lastUpdated: new Date().toISOString(),
+  };
 }
