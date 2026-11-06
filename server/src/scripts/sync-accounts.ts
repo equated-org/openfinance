@@ -113,11 +113,7 @@ program
 
       console.log(`Syncing transactions for connection ${connectionId}...`);
 
-      const result = await plaidService.syncTransactions({
-        connectionId: connection.id,
-        accessToken: connection.plaidAccessToken,
-        cursor: connection.transactionCursor,
-      });
+      const result = await plaidService.syncTransactions(connection.id);
 
       console.log(`\nSync complete:`);
       console.log(`  Added:    ${result.added}`);

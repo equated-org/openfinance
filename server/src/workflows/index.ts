@@ -10,7 +10,6 @@
  * 3. The workflow will be automatically registered with DBOS
  */
 
-import "./example.workflow";
 import "./plaid-transaction-sync.workflow";
 import "./mx-transaction-sync.workflow";
 import "./quiltt-transaction-sync.workflow";

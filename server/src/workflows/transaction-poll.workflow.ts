@@ -7,35 +7,33 @@
  */
 import { DBOS, SchedulerMode } from "@dbos-inc/dbos-sdk";
 import { db } from "../db";
-import { accountConnections, syncJobs } from "../schema";
+import { accountConnections, syncJobs, type AccountConnection } from "../schema";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { PlaidTransactionSyncWorkflow } from "./plaid-transaction-sync.workflow";
 import { MxTransactionSyncWorkflow } from "./mx-transaction-sync.workflow";
 import { QuilttTransactionSyncWorkflow } from "./quiltt-transaction-sync.workflow";
 import { shouldStopPolling } from "../lib/sync/disconnect-codes";
 import { scheduledJobsDisabled } from "../lib/utils";
+import type { SyncDelta } from "./sync-job";
 
 /**
  * Longer than any sync legitimately runs. Plaid's upstream wait, the longest,
- * is about 23 minutes.
+ * is about 20 minutes.
  */
 const STALE_JOB_MS = 60 * 60 * 1000;
+
+const SYNC_WORKFLOWS = {
+  plaid: PlaidTransactionSyncWorkflow,
+  mx: MxTransactionSyncWorkflow,
+  quiltt: QuilttTransactionSyncWorkflow,
+};
 
 interface PollResult {
   connectionsProcessed: number;
   errors: string[];
 }
 
-interface ConnectionSyncDelta {
-  added: number;
-  modified: number;
-  removed: number;
-}
-
-interface AggregateDeltas {
-  added: number;
-  modified: number;
-  removed: number;
+interface AggregateDeltas extends SyncDelta {
   changedConnections: number;
 }
 
@@ -74,43 +72,21 @@ export class TransactionPollWorkflow {
     const connections = await TransactionPollWorkflow.fetchActiveConnections();
 
     const errors: string[] = [];
-    const deltas: ConnectionSyncDelta[] = [];
+    const deltas: SyncDelta[] = [];
 
     for (const connection of connections) {
       try {
         const syncJob = await TransactionPollWorkflow.createSyncJob(connection);
 
-        if (connection.provider === "plaid") {
-          const handle = await DBOS.startWorkflow(
-            PlaidTransactionSyncWorkflow,
-          ).run({
-            connectionId: connection.id,
-            userId: connection.userId,
-            syncJobId: syncJob.id,
-          });
-          const result = await handle.getResult();
-          if (result) deltas.push(result);
-        } else if (connection.provider === "mx") {
-          const handle = await DBOS.startWorkflow(
-            MxTransactionSyncWorkflow,
-          ).run({
-            connectionId: connection.id,
-            userId: connection.userId,
-            syncJobId: syncJob.id,
-          });
-          const result = await handle.getResult();
-          if (result) deltas.push(result);
-        } else if (connection.provider === "quiltt") {
-          const handle = await DBOS.startWorkflow(
-            QuilttTransactionSyncWorkflow,
-          ).run({
-            connectionId: connection.id,
-            userId: connection.userId,
-            syncJobId: syncJob.id,
-          });
-          const result = await handle.getResult();
-          if (result) deltas.push(result);
-        }
+        const handle = await DBOS.startWorkflow(
+          SYNC_WORKFLOWS[connection.provider],
+        ).run({
+          connectionId: connection.id,
+          userId: connection.userId,
+          syncJobId: syncJob.id,
+        });
+        const result = await handle.getResult();
+        if (result) deltas.push(result);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         errors.push(
@@ -176,8 +152,13 @@ export class TransactionPollWorkflow {
 
   @DBOS.step()
   static async fetchActiveConnections() {
+    // Named columns: DBOS stores this result, and the row holds access tokens.
     const active = await db
-      .select()
+      .select({
+        id: accountConnections.id,
+        userId: accountConnections.userId,
+        provider: accountConnections.provider,
+      })
       .from(accountConnections)
       .where(eq(accountConnections.status, "active"));
 
@@ -220,7 +201,7 @@ export class TransactionPollWorkflow {
 
   @DBOS.step()
   static async createSyncJob(
-    connection: typeof accountConnections.$inferSelect,
+    connection: Pick<AccountConnection, "id" | "userId" | "provider">,
   ) {
     const [syncJob] = await db
       .insert(syncJobs)

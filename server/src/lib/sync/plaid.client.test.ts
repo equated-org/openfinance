@@ -9,11 +9,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { AxiosError, type InternalAxiosRequestConfig } from "axios";
-import {
-  extractPlaidError,
-  plaidClient,
-  PlaidRequestError,
-} from "./plaid.client";
+import { plaidClient } from "./plaid.client";
+import { readFailure, SyncFailure } from "./disconnect-codes";
 
 const ACCESS_TOKEN = "access-production-do-not-store";
 
@@ -48,8 +45,8 @@ describe("a failed Plaid call", () => {
       }),
     );
 
-    expect(err).toBeInstanceOf(PlaidRequestError);
-    expect(extractPlaidError(err)).toEqual({
+    expect(err).toBeInstanceOf(SyncFailure);
+    expect(readFailure(err)).toEqual({
       errorCode: "ITEM_LOGIN_REQUIRED",
       message: "the login details of this item have changed",
     });
@@ -79,7 +76,7 @@ describe("a failed Plaid call", () => {
       }),
     );
 
-    expect(extractPlaidError(err).message).toBe(
+    expect(readFailure(err).message).toBe(
       "This bank is temporarily unavailable.",
     );
   });
@@ -87,7 +84,7 @@ describe("a failed Plaid call", () => {
   it("has no code when the body doesn't carry one", async () => {
     const err = await callPlaid(rejectWith(503, { something: "else" }));
 
-    expect(extractPlaidError(err)).toEqual({
+    expect(readFailure(err)).toEqual({
       errorCode: undefined,
       message: "Request failed with status code 503",
     });
@@ -98,21 +95,10 @@ describe("a failed Plaid call", () => {
       adapter: () => Promise.reject(new Error("socket hang up")),
     });
 
-    expect(err).toBeInstanceOf(PlaidRequestError);
-    expect(extractPlaidError(err)).toEqual({
+    expect(err).toBeInstanceOf(SyncFailure);
+    expect(readFailure(err)).toEqual({
       errorCode: undefined,
       message: "socket hang up",
     });
-  });
-});
-
-describe("extractPlaidError", () => {
-  it("handles an error that never came from Plaid", () => {
-    expect(extractPlaidError(new Error("boom")).errorCode).toBeUndefined();
-  });
-
-  it("handles a non-Error throw", () => {
-    expect(extractPlaidError("boom").message).toBe("Unknown sync error");
-    expect(extractPlaidError(null).message).toBe("Unknown sync error");
   });
 });

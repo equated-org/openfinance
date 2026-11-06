@@ -323,6 +323,35 @@ describe("PlaidTransactionSyncWorkflow upstream pull", () => {
       expect(await emailed()).not.toHaveBeenCalled();
     });
 
+    it("asks the user to reconnect when Plaid's pulls keep failing", async () => {
+      withConnection(connection({ transactionCursor: "cursor-1" }));
+      mockSyncTransactions.mockResolvedValue(syncResult());
+      mockGetItemStatus.mockResolvedValue({
+        lastSuccessfulUpdate: new Date(Date.now() - 48 * 60 * 60 * 1000),
+        lastFailedUpdate: new Date(),
+        itemCreatedAt,
+      });
+
+      await poll(512);
+
+      expect(terminalUpdate()).toMatchObject({
+        status: "error",
+        errorCode: "STALE_DATA",
+      });
+      expect(await emailed()).toHaveBeenCalledOnce();
+    });
+
+    it("doesn't fail a sync that worked when the status read fails", async () => {
+      withConnection(connection({ transactionCursor: "cursor-1" }));
+      mockSyncTransactions.mockResolvedValue(syncResult());
+      mockGetItemStatus.mockRejectedValue(new Error("Plaid is down"));
+
+      await poll(513);
+
+      expect(terminalUpdate()?.status).toBe("success");
+      expect(await emailed()).not.toHaveBeenCalled();
+    });
+
     it("retries a transient failure quietly", async () => {
       withConnection(connection());
       mockSyncTransactions.mockRejectedValue(

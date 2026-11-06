@@ -6,6 +6,7 @@ import {
   CountryCode,
   type Institution as PlaidInstitution,
 } from "plaid";
+import { SyncFailure } from "./disconnect-codes";
 
 function getPlaidEnv(): string {
   const appEnv = process.env.APP_ENV || "dev";
@@ -36,19 +37,10 @@ const configuration = new Configuration({
  * the access token, and DBOS stores a failed step's error while Hono logs an
  * uncaught one. Its message is also only ever "Request failed with status code
  * 400": Plaid's real code is in the response body, and without it a broken
- * connection looks like an anonymous 400 and gets retried forever.
+ * connection looks like an anonymous 400 and gets retried forever. No code
+ * means the failure never reached Plaid: a network error, or a bug.
  */
-export class PlaidRequestError extends Error {
-  constructor(
-    message: string,
-    readonly errorCode?: string,
-  ) {
-    super(message);
-    this.name = "PlaidRequestError";
-  }
-}
-
-function toPlaidRequestError(err: unknown): PlaidRequestError {
+function toSyncFailure(err: unknown): SyncFailure {
   const data = (err as { response?: { data?: unknown } })?.response?.data as
     | {
         error_code?: string;
@@ -58,7 +50,7 @@ function toPlaidRequestError(err: unknown): PlaidRequestError {
     | undefined;
   const fallback = err instanceof Error ? err.message : "Unknown Plaid error";
 
-  return new PlaidRequestError(
+  return new SyncFailure(
     data?.error_message ?? data?.display_message ?? fallback,
     data?.error_code,
   );
@@ -66,23 +58,12 @@ function toPlaidRequestError(err: unknown): PlaidRequestError {
 
 const http = axios.create();
 http.interceptors.response.use(undefined, (err) =>
-  Promise.reject(toPlaidRequestError(err)),
+  Promise.reject(toSyncFailure(err)),
 );
 
 export const plaidClient = new PlaidApi(configuration, undefined, http);
 
 export const PLAID_COUNTRY_CODES = [CountryCode.Us, CountryCode.Ca];
-
-/** No code means the failure never reached Plaid: a network error, or a bug. */
-export function extractPlaidError(err: unknown): {
-  errorCode?: string;
-  message: string;
-} {
-  return {
-    errorCode: (err as { errorCode?: string } | null)?.errorCode,
-    message: err instanceof Error ? err.message : "Unknown sync error",
-  };
-}
 
 /**
  * Stream all institutions from Plaid API in batches for memory-efficient processing

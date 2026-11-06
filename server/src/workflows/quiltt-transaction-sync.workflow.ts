@@ -1,24 +1,14 @@
 import { DBOS } from "@dbos-inc/dbos-sdk";
 import { db } from "../db";
-import { accountConnections, syncJobs } from "../schema";
+import { user as userTable } from "../schema";
 import { eq } from "drizzle-orm";
+import { SyncFailure } from "../lib/sync/disconnect-codes";
 import { quilttService } from "../lib/sync/quiltt.service";
-import { notificationService } from "../lib/notification.service";
+import { runSyncJob, type SyncDelta, type SyncJobInput } from "./sync-job";
 
 export class QuilttTransactionSyncWorkflow {
   @DBOS.step()
-  static async fetchConnection(connectionId: number) {
-    const rows = await db
-      .select()
-      .from(accountConnections)
-      .where(eq(accountConnections.id, connectionId))
-      .limit(1);
-    return rows[0] ?? null;
-  }
-
-  @DBOS.step()
   static async getQuilttProfileId(userId: string): Promise<string | null> {
-    const { user: userTable } = await import("../schema");
     const [row] = await db
       .select({ quilttProfileId: userTable.quilttProfileId })
       .from(userTable)
@@ -27,16 +17,25 @@ export class QuilttTransactionSyncWorkflow {
     return row?.quilttProfileId ?? null;
   }
 
+  /** Waits for Quiltt to finish with the bank. A failed check isn't a failed sync. */
   @DBOS.step()
   static async waitForSync(
+    connectionId: number,
     profileId: string,
     quilttConnectionId: string,
   ): Promise<{ status: string; ready: boolean }> {
-    return quilttService.waitForConnectionSync(
-      profileId,
-      quilttConnectionId,
-      { maxAttempts: 60, intervalMs: 5000 }, // Wait up to 5 minutes
-    );
+    try {
+      return await quilttService.waitForConnectionSync(
+        profileId,
+        quilttConnectionId,
+        { maxAttempts: 60, intervalMs: 5000 }, // Wait up to 5 minutes
+      );
+    } catch (err) {
+      DBOS.logger.warn(
+        `Failed to check Quiltt connection status for connection ${connectionId}, proceeding with sync: ${err}`,
+      );
+      return { status: "UNKNOWN", ready: true };
+    }
   }
 
   @DBOS.step()
@@ -48,180 +47,45 @@ export class QuilttTransactionSyncWorkflow {
     return quilttService.syncTransactions(params);
   }
 
-  @DBOS.step()
-  static async markStarted(syncJobId: number) {
-    await db
-      .update(syncJobs)
-      .set({ startedAt: new Date(), updatedAt: new Date() })
-      .where(eq(syncJobs.id, syncJobId));
-  }
-
-  @DBOS.step()
-  static async markComplete(syncJobId: number, recordsProcessed: number) {
-    await db
-      .update(syncJobs)
-      .set({
-        status: "success",
-        completedAt: new Date(),
-        recordsProcessed,
-        updatedAt: new Date(),
-      })
-      .where(eq(syncJobs.id, syncJobId));
-  }
-
-  @DBOS.step()
-  static async markError(
-    syncJobId: number,
-    errorMessage: string,
-    errorCode?: string,
-  ) {
-    await db
-      .update(syncJobs)
-      .set({
-        status: "error",
-        completedAt: new Date(),
-        errorMessage,
-        errorCode: errorCode ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(syncJobs.id, syncJobId));
-  }
-
-  @DBOS.step()
-  static async notifyDisconnect(
-    userId: string,
-    connectionId: number,
-    errorMessage?: string,
-  ) {
-    try {
-      await notificationService.sendAccountDisconnectEmail({
-        userId,
-        connectionId,
-        errorMessage,
-      });
-    } catch (e) {
-      DBOS.logger.error(
-        `Failed to send disconnect notification for connection ${connectionId}: ${e}`,
-      );
-    }
-  }
-
-  @DBOS.step()
-  static async notifySync(
-    userId: string,
-    connectionId: number,
-    added: number,
-    modified: number,
-    removed: number,
-  ) {
-    try {
-      await notificationService.logTransactionSync({
-        userId,
-        connectionId,
-        added,
-        modified,
-        removed,
-      });
-    } catch (e) {
-      DBOS.logger.error(
-        `Failed to log sync notification for connection ${connectionId}: ${e}`,
-      );
-    }
-  }
-
   @DBOS.workflow()
-  static async run(input: {
-    connectionId: number;
-    userId: string;
-    syncJobId: number;
-  }): Promise<{ added: number; modified: number; removed: number } | null> {
-    const { connectionId, userId, syncJobId } = input;
+  static async run(input: SyncJobInput): Promise<SyncDelta | null> {
+    const { connectionId, userId } = input;
 
-    await QuilttTransactionSyncWorkflow.markStarted(syncJobId);
-
-    const connection =
-      await QuilttTransactionSyncWorkflow.fetchConnection(connectionId);
-
-    if (!connection || !connection.quilttConnectionId) {
-      await QuilttTransactionSyncWorkflow.markError(
-        syncJobId,
-        "Connection not found or missing Quiltt connection ID",
-      );
-      return null;
-    }
-
-    const profileId =
-      await QuilttTransactionSyncWorkflow.getQuilttProfileId(userId);
-    if (!profileId) {
-      await QuilttTransactionSyncWorkflow.markError(
-        syncJobId,
-        "User does not have a Quiltt profile ID",
-      );
-      return null;
-    }
-
-    // Wait for Quiltt connection to finish syncing with upstream provider
-    try {
-      const syncStatus = await QuilttTransactionSyncWorkflow.waitForSync(
-        profileId,
-        connection.quilttConnectionId,
-      );
-
-      if (!syncStatus.ready) {
-        const isRepairable = syncStatus.status === "ERROR_REPAIRABLE";
-        const errorCode = isRepairable ? "CONNECTION_EXPIRED" : "SYNC_ERROR";
-        const message = isRepairable
-          ? "Your bank connection needs attention. Please reconnect your account."
-          : `Connection sync failed with status: ${syncStatus.status}`;
-
-        await QuilttTransactionSyncWorkflow.markError(
-          syncJobId,
-          message,
-          errorCode,
-        );
-
-        if (isRepairable) {
-          await QuilttTransactionSyncWorkflow.notifyDisconnect(
-            userId,
-            connectionId,
-            message,
-          );
-        }
-
-        return null;
+    return runSyncJob(input, async ({ quilttConnectionId }) => {
+      if (!quilttConnectionId) {
+        throw new SyncFailure("Connection is missing its Quiltt connection ID");
       }
-    } catch (err) {
-      DBOS.logger.warn(
-        `Failed to check Quiltt connection status for connection ${connectionId}, proceeding with sync: ${err}`,
-      );
-    }
 
-    try {
-      const result = await QuilttTransactionSyncWorkflow.runSync({
+      const quilttProfileId =
+        await QuilttTransactionSyncWorkflow.getQuilttProfileId(userId);
+      if (!quilttProfileId) {
+        throw new SyncFailure("User does not have a Quiltt profile ID");
+      }
+
+      const { status, ready } = await QuilttTransactionSyncWorkflow.waitForSync(
         connectionId,
-        quilttConnectionId: connection.quilttConnectionId,
-        quilttProfileId: profileId,
+        quilttProfileId,
+        quilttConnectionId,
+      );
+      if (!ready) {
+        throw status === "ERROR_REPAIRABLE"
+          ? new SyncFailure(
+              "Your bank connection needs attention. Please reconnect your account.",
+              "CONNECTION_EXPIRED",
+            )
+          : new SyncFailure(
+              `Connection sync failed with status: ${status}`,
+              "SYNC_ERROR",
+            );
+      }
+
+      const { added } = await QuilttTransactionSyncWorkflow.runSync({
+        connectionId,
+        quilttConnectionId,
+        quilttProfileId,
       });
 
-      await QuilttTransactionSyncWorkflow.markComplete(syncJobId, result.added);
-      if (result.added > 0) {
-        await QuilttTransactionSyncWorkflow.notifySync(
-          userId,
-          connectionId,
-          result.added,
-          0,
-          0,
-        );
-      }
-      return { added: result.added, modified: 0, removed: 0 };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown sync error";
-      await QuilttTransactionSyncWorkflow.markError(syncJobId, message);
-      DBOS.logger.error(
-        `Quiltt transaction sync failed for connection ${connectionId}: ${message}`,
-      );
-
-      return null;
-    }
+      return { added, modified: 0, removed: 0 };
+    });
   }
 }
