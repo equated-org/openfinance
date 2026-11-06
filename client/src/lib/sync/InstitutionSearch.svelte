@@ -81,11 +81,9 @@
       health?.item_logins?.breakdown?.success ?? 1,
       health?.transactions_updates?.breakdown?.success ?? 1,
     );
-    const hasIssues = success < PLAID_DISABLE_THRESHOLD;
     return {
-      hasIssues,
+      hasIssues: success < PLAID_DISABLE_THRESHOLD,
       degraded: success < PLAID_WARNING_THRESHOLD,
-      label: hasIssues ? "Lower Success Rate" : "Some Issues",
       percent: Math.round(success * 100),
     };
   }
@@ -318,8 +316,10 @@
                     <div class="flex gap-1 flex-shrink-0 items-center">
                       <Tooltip>
                         <TooltipTrigger class="flex items-center gap-1">
-                          {#if status.degraded}
-                            <Badge variant="amber">{status.label}</Badge>
+                          <!-- Only the worst: a third of rated banks are under the
+                               warning threshold, big ones that work fine included. -->
+                          {#if status.hasIssues}
+                            <Badge variant="amber">Lower Success Rate</Badge>
                           {/if}
                           {#if institution.providers.length > 1}
                             <span class="text-xs text-[var(--text-muted)]">
@@ -337,11 +337,10 @@
                           <p class="max-w-xs text-xs">
                             {providerTooltip(institution)}
                           </p>
-                          {#if status.degraded}
+                          {#if status.hasIssues}
                             <p class="max-w-xs text-xs mt-1">
                               Plaid currently reports a {status.percent}% success
-                              rate for this bank, so connecting may take a few
-                              tries.
+                              rate for this bank.
                             </p>
                           {/if}
                         </TooltipContent>

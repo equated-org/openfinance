@@ -107,9 +107,9 @@ const mockInstitutions: InstitutionType[] = [
           status: "DEGRADED",
           last_status_change: "2024-01-01",
           breakdown: {
-            success: 0.9,
-            error_institution: 0.05,
-            error_plaid: 0.05,
+            success: 0.6,
+            error_institution: 0.3,
+            error_plaid: 0.1,
           },
         },
         lastUpdated: "2024-01-01",
