@@ -13,6 +13,7 @@
     "@hono/zod-validator": "^0.7.6",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@openfinance/shared": "workspace:*",
+    "axios": "1.13.5",
     "better-auth": "^1.2.0",
     "commander": "^14.0.3",
     "date-fns": "^4.1.0",

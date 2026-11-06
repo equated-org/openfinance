@@ -1,12 +1,7 @@
 /**
- * Tests for PlaidService.syncTransactions — specifically the polling
- * behavior during initial sync to wait for HISTORICAL_UPDATE_COMPLETE.
- *
- * When a user first connects a bank account, Plaid's transaction sync has
- * two phases: INITIAL_UPDATE_COMPLETE (recent transactions only) and
- * HISTORICAL_UPDATE_COMPLETE (all historical transactions). The service
- * polls with exponential backoff during the initial sync until historical
- * data is ready or retries are exhausted.
+ * Tests for PlaidService.syncTransactions: reading a whole update from
+ * /transactions/sync and saving it. Waiting for Plaid's pull to finish is the
+ * sync workflow's job.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -20,6 +15,9 @@ vi.mock("./plaid.client", () => ({
     itemGet: mockItemGet,
     accountsGet: mockAccountsGet,
   },
+  extractPlaidError: (err: { errorCode?: string }) => ({
+    errorCode: err.errorCode,
+  }),
 }));
 
 const mockDbChain = () => {
@@ -157,69 +155,6 @@ describe("PlaidService.syncTransactions", () => {
     dbMock.set = vi.fn().mockReturnValue(dbMock);
   });
 
-  // An Item with no /transactions/sync-eligible accounts (brokerages: the
-  // endpoint covers credit, depository and some loan accounts only) returns an
-  // empty delta AND an empty next_cursor — the same shape a NOT_READY Item
-  // returns. Readiness must come from the status, never the cursor, or these
-  // Items would wait ~4 minutes on every poll forever.
-  it("does not wait for a ready Item that returns an empty cursor", async () => {
-    mockTransactionsSync.mockResolvedValueOnce(
-      makeSyncResponse({
-        next_cursor: "",
-        transactions_update_status: "HISTORICAL_UPDATE_COMPLETE",
-      }),
-    );
-
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
-    });
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
-    expect(result.added).toBe(0);
-    expect(result.updateStatus).toBe("HISTORICAL_UPDATE_COMPLETE");
-  });
-
-  // An unreadable status must never produce an infinite wait.
-  it("does not wait when the update status is unknown", async () => {
-    mockTransactionsSync.mockResolvedValueOnce(
-      makeSyncResponse({
-        next_cursor: "",
-        transactions_update_status: "TRANSACTIONS_UPDATE_STATUS_UNKNOWN",
-      }),
-    );
-
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
-    });
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
-    expect(result.updateStatus).toBe("TRANSACTIONS_UPDATE_STATUS_UNKNOWN");
-  });
-
-  // The scheduled poll runs connections serially, so it must never block on
-  // Plaid's upstream pull even when the Item reports NOT_READY.
-  it("does not wait during a scheduled poll even when NOT_READY", async () => {
-    mockTransactionsSync.mockResolvedValueOnce(
-      makeSyncResponse({ transactions_update_status: "NOT_READY" }),
-    );
-
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-    });
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
-    expect(result.updateStatus).toBe("NOT_READY");
-  });
-
-  // Happy path: Plaid has data ready immediately, no polling needed
   it("syncs transactions on first call when data is ready", async () => {
     mockTransactionsSync.mockResolvedValueOnce(
       makeSyncResponse({
@@ -240,171 +175,115 @@ describe("PlaidService.syncTransactions", () => {
     expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
   });
 
-  // Core scenario: initial sync returns NOT_READY, service waits and retries,
-  // second attempt returns transactions with HISTORICAL_UPDATE_COMPLETE
-  it("polls with backoff when NOT_READY, then syncs when data arrives", async () => {
-    vi.useFakeTimers();
+  /** The transactions saved so far, in order. */
+  function savedTransactionIds() {
+    const values = dbMock.values as ReturnType<typeof vi.fn>;
+    return values.mock.calls
+      .map(([row]) => (row as { providerTransactionId?: string }).providerTransactionId)
+      .filter(Boolean);
+  }
 
+  const dataChanged = Object.assign(new Error("data changed"), {
+    errorCode: "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION",
+  });
+
+  it("reads every page before saving anything", async () => {
+    let savedBeforeLastPage: unknown[] = [];
     mockTransactionsSync
       .mockResolvedValueOnce(
         makeSyncResponse({
-          next_cursor: "cursor-0",
-          transactions_update_status: "NOT_READY",
+          added: [makeTx("tx-1")],
+          next_cursor: "page-2",
+          has_more: true,
         }),
       )
-      .mockResolvedValueOnce(
-        makeSyncResponse({
-          added: [makeTx("tx-1"), makeTx("tx-2"), makeTx("tx-3")],
-          next_cursor: "cursor-1",
-          transactions_update_status: "HISTORICAL_UPDATE_COMPLETE",
-        }),
-      );
-
-    const resultPromise = plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
-    });
-
-    // Advance past the first backoff delay (5s)
-    await vi.advanceTimersByTimeAsync(5000);
-
-    const result = await resultPromise;
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(2);
-    expect(result.added).toBe(3);
-    expect(result.nextCursor).toBe("cursor-1");
-
-    vi.useRealTimers();
-  });
-
-  // Edge case: Plaid never becomes ready within the retry window (~245s).
-  // Service should give up after 10 retries and return 0 results.
-  it("exhausts all retries when data never becomes ready", async () => {
-    vi.useFakeTimers();
-
-    // 11 calls total: 1 initial + 10 retries, all NOT_READY
-    for (let i = 0; i < 11; i++) {
-      mockTransactionsSync.mockResolvedValueOnce(
-        makeSyncResponse({
-          next_cursor: `cursor-${i}`,
-          transactions_update_status: "NOT_READY",
-        }),
-      );
-    }
-
-    const resultPromise = plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
-    });
-
-    // Advance through all backoff delays: 5s + 10s + 20s + 30s×7
-    for (const delay of [
-      5000, 10000, 20000, 30000, 30000, 30000, 30000, 30000, 30000, 30000,
-    ]) {
-      await vi.advanceTimersByTimeAsync(delay);
-    }
-
-    const result = await resultPromise;
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(11);
-    expect(result.added).toBe(0);
-
-    vi.useRealTimers();
-  });
-
-  // Timeout still saves initial data: even if retries are exhausted,
-  // transactions from earlier responses are persisted and cursor is updated.
-  it("saves initial data and cursor even when polling times out", async () => {
-    vi.useFakeTimers();
-
-    // First call: INITIAL_UPDATE_COMPLETE with transactions
-    mockTransactionsSync.mockResolvedValueOnce(
-      makeSyncResponse({
-        added: [makeTx("tx-1"), makeTx("tx-2")],
-        next_cursor: "cursor-1",
-        transactions_update_status: "INITIAL_UPDATE_COMPLETE",
-      }),
-    );
-
-    // Remaining 10 retries: all NOT_READY, no new data
-    for (let i = 0; i < 10; i++) {
-      mockTransactionsSync.mockResolvedValueOnce(
-        makeSyncResponse({
-          next_cursor: "cursor-1",
-          transactions_update_status: "NOT_READY",
-        }),
-      );
-    }
-
-    const resultPromise = plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
-    });
-
-    // Advance through all backoff delays
-    for (const delay of [
-      5000, 10000, 20000, 30000, 30000, 30000, 30000, 30000, 30000, 30000,
-    ]) {
-      await vi.advanceTimersByTimeAsync(delay);
-    }
-
-    const result = await resultPromise;
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(11);
-    expect(result.added).toBe(2);
-    expect(result.nextCursor).toBe("cursor-1");
-
-    vi.useRealTimers();
-  });
-
-  // INITIAL_UPDATE_COMPLETE with data: should continue polling for historical data
-  it("continues polling when INITIAL_UPDATE_COMPLETE, stops at HISTORICAL_UPDATE_COMPLETE", async () => {
-    vi.useFakeTimers();
-
-    mockTransactionsSync
-      .mockResolvedValueOnce(
-        makeSyncResponse({
-          added: [makeTx("tx-1"), makeTx("tx-2"), makeTx("tx-3")],
-          next_cursor: "cursor-1",
-          transactions_update_status: "INITIAL_UPDATE_COMPLETE",
-        }),
-      )
-      .mockResolvedValueOnce(
-        makeSyncResponse({
-          added: [makeTx("tx-4"), makeTx("tx-5")],
+      .mockImplementationOnce(async () => {
+        savedBeforeLastPage = savedTransactionIds();
+        return makeSyncResponse({
+          added: [makeTx("tx-2")],
           next_cursor: "cursor-2",
-          transactions_update_status: "HISTORICAL_UPDATE_COMPLETE",
-        }),
-      );
+        });
+      });
 
-    const resultPromise = plaidService.syncTransactions({
+    const result = await plaidService.syncTransactions({
       connectionId: 1,
       accessToken: "access-token",
-      cursor: null,
-      waitForInitialPull: true,
+      cursor: "cursor-1",
     });
 
-    // Advance past the first backoff delay (5s)
-    await vi.advanceTimersByTimeAsync(5000);
-
-    const result = await resultPromise;
-
-    expect(mockTransactionsSync).toHaveBeenCalledTimes(2);
-    expect(result.added).toBe(5);
-    expect(result.nextCursor).toBe("cursor-2");
-
-    vi.useRealTimers();
+    expect(savedBeforeLastPage).toEqual([]);
+    expect(savedTransactionIds()).toEqual(["tx-1", "tx-2"]);
+    expect(result).toMatchObject({ added: 2, nextCursor: "cursor-2" });
+    expect(mockTransactionsSync).toHaveBeenCalledWith(
+      expect.objectContaining({ count: 500 }),
+    );
   });
 
-  // Incremental sync (cursor != null): should exit immediately without polling,
-  // even if status is not HISTORICAL_UPDATE_COMPLETE
-  it("does not poll during incremental sync (cursor != null)", async () => {
+  // Plaid requires restarting from the update's first cursor. A transaction
+  // from the abandoned attempt may have since been removed, and the restarted
+  // update wouldn't mention it, so saving it would leave a phantom row.
+  it("restarts from the original cursor when the data changes mid-update", async () => {
+    mockTransactionsSync
+      .mockResolvedValueOnce(
+        makeSyncResponse({
+          added: [makeTx("tx-abandoned")],
+          next_cursor: "page-2",
+          has_more: true,
+        }),
+      )
+      .mockRejectedValueOnce(dataChanged)
+      .mockResolvedValueOnce(
+        makeSyncResponse({ added: [makeTx("tx-1")], next_cursor: "cursor-2" }),
+      );
+
+    const result = await plaidService.syncTransactions({
+      connectionId: 1,
+      accessToken: "access-token",
+      cursor: "cursor-1",
+    });
+
+    expect(mockTransactionsSync.mock.calls.map(([req]) => req.cursor)).toEqual([
+      "cursor-1",
+      "page-2",
+      "cursor-1",
+    ]);
+    expect(savedTransactionIds()).toEqual(["tx-1"]);
+    expect(result).toMatchObject({ added: 1, nextCursor: "cursor-2" });
+  });
+
+  it("gives up when the data never settles, keeping the cursor", async () => {
+    mockTransactionsSync.mockRejectedValue(dataChanged);
+
+    await expect(
+      plaidService.syncTransactions({
+        connectionId: 1,
+        accessToken: "access-token",
+        cursor: "cursor-1",
+      }),
+    ).rejects.toBe(dataChanged);
+
+    expect(mockTransactionsSync).toHaveBeenCalledTimes(3);
+    expect(dbMock.set).not.toHaveBeenCalled();
+  });
+
+  it("doesn't retry any other error", async () => {
+    const loginRequired = Object.assign(new Error("login"), {
+      errorCode: "ITEM_LOGIN_REQUIRED",
+    });
+    mockTransactionsSync.mockRejectedValue(loginRequired);
+
+    await expect(
+      plaidService.syncTransactions({
+        connectionId: 1,
+        accessToken: "access-token",
+        cursor: "cursor-1",
+      }),
+    ).rejects.toBe(loginRequired);
+
+    expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues from the saved cursor and reports the update status", async () => {
     mockTransactionsSync.mockResolvedValueOnce(
       makeSyncResponse({
         added: [makeTx("tx-1")],
@@ -422,6 +301,7 @@ describe("PlaidService.syncTransactions", () => {
     expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
     expect(result.added).toBe(1);
     expect(result.nextCursor).toBe("cursor-2");
+    expect(result.updateStatus).toBe("INITIAL_UPDATE_COMPLETE");
   });
 
   // A replacement card joins the Item with a new account_id. Accounts used to

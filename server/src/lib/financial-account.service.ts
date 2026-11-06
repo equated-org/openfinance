@@ -16,6 +16,8 @@ import { quilttService } from "./sync/quiltt.service";
 import { needsUserAction } from "./sync/disconnect-codes";
 import { user as userTable } from "../schema";
 
+const STUCK_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
 interface SyncError {
   message: string;
   lastFailedAt: string;
@@ -273,8 +275,13 @@ class FinancialAccountService {
         errorCode: syncJobs.errorCode,
         completedAt: syncJobs.completedAt,
         status: syncJobs.status,
+        lastSyncedAt: accountConnections.lastSyncedAt,
       })
       .from(syncJobs)
+      .innerJoin(
+        accountConnections,
+        eq(syncJobs.accountConnectionId, accountConnections.id),
+      )
       .where(inArray(syncJobs.accountConnectionId, connectionIds))
       .orderBy(
         syncJobs.accountConnectionId,
@@ -287,11 +294,17 @@ class FinancialAccountService {
       // Only genuine disconnects get a syncError, because that is what drives
       // the "Reconnect" prompt and the reconnect task. Transient failures
       // (INSTITUTION_DOWN, rate limits, an upstream pull still in progress)
-      // must not tell the user to re-link — re-linking would not help.
+      // must not tell the user to re-link — re-linking would not help. A week
+      // without a sync is past that, whatever the error, or a failure nobody
+      // anticipated would stay silent forever.
+      const stuck =
+        !!job.lastSyncedAt &&
+        Date.now() - job.lastSyncedAt.getTime() > STUCK_AFTER_MS;
+
       if (
         job.status === "error" &&
         job.errorMessage &&
-        needsUserAction(job.errorCode)
+        (needsUserAction(job.errorCode) || stuck)
       ) {
         errorMap.set(job.accountConnectionId, {
           message: job.errorMessage,

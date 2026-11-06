@@ -10,10 +10,9 @@
  */
 
 /**
- * Plaid codes that Link's update mode is documented to resolve. The PENDING_*
- * pair fires *before* the Item breaks — PENDING_EXPIRATION about a week before
- * consent lapses — so catching them is what lets a user fix a connection ahead
- * of losing data rather than after.
+ * Plaid codes that won't clear until the user acts: signing in again through
+ * Link's update mode, finishing something on the bank's own site, or linking
+ * the bank afresh. Every other code is retried on the next poll.
  */
 const PLAID_RELINK_CODES = [
   "ITEM_LOGIN_REQUIRED",
@@ -22,8 +21,13 @@ const PLAID_RELINK_CODES = [
   "INVALID_MFA",
   "ACCESS_NOT_GRANTED",
   "PASSWORD_RESET_REQUIRED",
-  "PENDING_EXPIRATION",
-  "PENDING_DISCONNECT",
+  "USER_SETUP_REQUIRED",
+  "USER_PERMISSION_REVOKED",
+  "NO_ACCOUNTS",
+  "ITEM_NOT_SUPPORTED",
+  "ITEM_NOT_FOUND",
+  "INVALID_ACCESS_TOKEN",
+  "INSTITUTION_NO_LONGER_SUPPORTED",
 ];
 
 /** Synthesized by the Quiltt sync workflow from an ERROR_REPAIRABLE status. */

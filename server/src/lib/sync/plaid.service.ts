@@ -1,8 +1,12 @@
-import { plaidClient, PLAID_COUNTRY_CODES } from "./plaid.client";
+import type { RemovedTransaction, Transaction } from "plaid";
+import {
+  extractPlaidError,
+  plaidClient,
+  PLAID_COUNTRY_CODES,
+} from "./plaid.client";
 import { db } from "../../db";
 import { DBOS } from "@dbos-inc/dbos-sdk";
 import { PlaidTransactionSyncWorkflow } from "../../workflows/plaid-transaction-sync.workflow";
-import { sleep } from "../utils";
 import {
   financialAccounts,
   accountConnections,
@@ -12,6 +16,12 @@ import {
 } from "../../schema";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import { user as userTable } from "../../schema";
+
+/** Plaid's largest page, so a big update has fewer chances to be interrupted. */
+const SYNC_PAGE_SIZE = 500;
+
+/** How many times to try an update whose data keeps changing underneath us. */
+const MAX_SYNC_ATTEMPTS = 3;
 
 class PlaidService {
   async exchangePublicToken(publicToken: string) {
@@ -37,18 +47,6 @@ class PlaidService {
       language: "en",
     });
     return response.data.link_token;
-  }
-
-  async getInstitutionInfo(institutionId: string) {
-    const response = await plaidClient.institutionsGetById({
-      institution_id: institutionId,
-      country_codes: PLAID_COUNTRY_CODES,
-      options: { include_optional_metadata: true },
-    });
-    return {
-      name: response.data.institution.name,
-      logo: response.data.institution.logo ?? null,
-    };
   }
 
   async findRegistryId(institutionId: string): Promise<number | null> {
@@ -174,18 +172,52 @@ class PlaidService {
     }
   }
 
+  /**
+   * Every update since `cursor`. If the data changes between pages, Plaid
+   * rejects the next page and the whole update has to start over from `cursor`.
+   * That's why nothing is saved until every page is in: a half-saved attempt
+   * could keep a transaction the restarted update never mentions.
+   */
+  private async fetchUpdates(accessToken: string, cursor: string | null) {
+    for (let attempt = 1; ; attempt++) {
+      const added: Transaction[] = [];
+      const modified: Transaction[] = [];
+      const removed: RemovedTransaction[] = [];
+      let nextCursor = cursor ?? "";
+
+      try {
+        for (;;) {
+          const { data } = await plaidClient.transactionsSync({
+            access_token: accessToken,
+            cursor: nextCursor || undefined,
+            count: SYNC_PAGE_SIZE,
+          });
+          added.push(...data.added);
+          modified.push(...data.modified);
+          removed.push(...data.removed);
+          nextCursor = data.next_cursor;
+
+          if (!data.has_more) {
+            const updateStatus: string | null =
+              data.transactions_update_status ?? null;
+            return { added, modified, removed, nextCursor, updateStatus };
+          }
+        }
+      } catch (err) {
+        const restart =
+          extractPlaidError(err).errorCode ===
+          "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
+        if (!restart || attempt === MAX_SYNC_ATTEMPTS) throw err;
+      }
+    }
+  }
+
   async syncTransactions(params: {
     connectionId: number;
     accessToken: string;
     cursor: string | null;
-    /**
-     * Wait for Plaid's asynchronous initial/historical pull to finish. Only set
-     * on the Link path — the scheduled poll processes connections serially, so
-     * blocking there would delay every other connection's sync.
-     */
-    waitForInitialPull?: boolean;
   }) {
-    const { connectionId, accessToken, cursor, waitForInitialPull } = params;
+    const { connectionId, accessToken, cursor } = params;
 
     const [connection] = await db
       .select({ userId: accountConnections.userId })
@@ -217,169 +249,63 @@ class PlaidService {
 
     const accountMap = new Map(accounts.map((a) => [a.providerAccountId, a]));
 
-    let nextCursor = cursor ?? "";
-    let updateStatus: string | null = null;
-    let added = 0;
-    let modified = 0;
-    let removed = 0;
+    const updates = await this.fetchUpdates(accessToken, cursor);
+    const { nextCursor, updateStatus } = updates;
+
     const skippedAccountIds = new Set<string>();
 
-    const initialDelay = 5000;
-    const maxDelay = 30000;
-    const maxRetries = 10;
-    let retryIndex = 0;
-
-    // Single loop: pages through results, then polls with backoff if NOT_READY
-    for (;;) {
-      const response = await plaidClient.transactionsSync({
-        access_token: accessToken,
-        cursor: nextCursor || undefined,
-      });
-
-      const data = response.data;
-      nextCursor = data.next_cursor;
-      updateStatus = data.transactions_update_status ?? null;
-
-      console.debug(
-        `connection ${connectionId}: status=${data.transactions_update_status}, ` +
-          `added=${data.added.length}, modified=${data.modified.length}, removed=${data.removed.length}, ` +
-          `has_more=${data.has_more}`,
-      );
-
-      // Process added transactions
-      for (const tx of data.added) {
-        const account = accountMap.get(tx.account_id);
-        if (!account) {
-          skippedAccountIds.add(tx.account_id);
-          continue;
-        }
-
-        await db
-          .insert(transactions)
-          .values({
-            userId: account.userId,
-            accountId: account.id,
-            providerTransactionId: tx.transaction_id,
-            name: tx.name,
-            amount: tx.amount.toString(),
-            isoCurrencyCode: tx.iso_currency_code ?? null,
-            date: new Date(tx.date),
-            authorizedDate: tx.authorized_date
-              ? new Date(tx.authorized_date)
-              : null,
-            pending: tx.pending,
-            merchantName: tx.merchant_name ?? null,
-            raw: tx as unknown as Record<string, unknown>,
-          })
-          .onConflictDoUpdate({
-            target: [
-              transactions.accountId,
-              transactions.providerTransactionId,
-            ],
-            set: {
-              name: tx.name,
-              amount: tx.amount.toString(),
-              isoCurrencyCode: tx.iso_currency_code ?? null,
-              date: new Date(tx.date),
-              authorizedDate: tx.authorized_date
-                ? new Date(tx.authorized_date)
-                : null,
-              pending: tx.pending,
-              merchantName: tx.merchant_name ?? null,
-              raw: tx as unknown as Record<string, unknown>,
-              updatedAt: new Date(),
-            },
-          });
-        added++;
+    /** Saves a new or changed transaction, returning how many rows it wrote. */
+    const save = async (tx: Transaction) => {
+      const account = accountMap.get(tx.account_id);
+      if (!account) {
+        skippedAccountIds.add(tx.account_id);
+        return 0;
       }
 
-      // Process modified transactions
-      for (const tx of data.modified) {
-        const account = accountMap.get(tx.account_id);
-        if (!account) {
-          skippedAccountIds.add(tx.account_id);
-          continue;
-        }
+      const fields = {
+        name: tx.name,
+        amount: tx.amount.toString(),
+        isoCurrencyCode: tx.iso_currency_code ?? null,
+        date: new Date(tx.date),
+        authorizedDate: tx.authorized_date
+          ? new Date(tx.authorized_date)
+          : null,
+        pending: tx.pending,
+        merchantName: tx.merchant_name ?? null,
+        raw: tx as unknown as Record<string, unknown>,
+      };
 
-        await db
-          .insert(transactions)
-          .values({
-            userId: account.userId,
-            accountId: account.id,
-            providerTransactionId: tx.transaction_id,
-            name: tx.name,
-            amount: tx.amount.toString(),
-            isoCurrencyCode: tx.iso_currency_code ?? null,
-            date: new Date(tx.date),
-            authorizedDate: tx.authorized_date
-              ? new Date(tx.authorized_date)
-              : null,
-            pending: tx.pending,
-            merchantName: tx.merchant_name ?? null,
-            raw: tx as unknown as Record<string, unknown>,
-          })
-          .onConflictDoUpdate({
-            target: [
-              transactions.accountId,
-              transactions.providerTransactionId,
-            ],
-            set: {
-              name: tx.name,
-              amount: tx.amount.toString(),
-              isoCurrencyCode: tx.iso_currency_code ?? null,
-              date: new Date(tx.date),
-              authorizedDate: tx.authorized_date
-                ? new Date(tx.authorized_date)
-                : null,
-              pending: tx.pending,
-              merchantName: tx.merchant_name ?? null,
-              raw: tx as unknown as Record<string, unknown>,
-              updatedAt: new Date(),
-            },
-          });
-        modified++;
-      }
+      await db
+        .insert(transactions)
+        .values({
+          userId: account.userId,
+          accountId: account.id,
+          providerTransactionId: tx.transaction_id,
+          ...fields,
+        })
+        .onConflictDoUpdate({
+          target: [transactions.accountId, transactions.providerTransactionId],
+          set: { ...fields, updatedAt: new Date() },
+        });
+      return 1;
+    };
 
-      // Process removed transactions
-      for (const tx of data.removed) {
-        if (!tx.transaction_id) continue;
-        await db
-          .update(transactions)
-          .set({ status: "deleted", updatedAt: new Date() })
-          .where(
-            sql`${transactions.providerTransactionId} = ${tx.transaction_id}`,
-          );
-        removed++;
-      }
+    let added = 0;
+    for (const tx of updates.added) added += await save(tx);
 
-      // More pages available — continue immediately
-      if (data.has_more) continue;
+    let modified = 0;
+    for (const tx of updates.modified) modified += await save(tx);
 
-      // Wait for Plaid's initial/historical pull to finish.
-      //
-      // This deliberately does NOT key off `cursor === null`. A not-ready first
-      // sync returns an empty next_cursor, and so does an Item with no
-      // /transactions/sync-eligible accounts (brokerages — the endpoint covers
-      // credit, depository and some loan accounts only). Both persist as "", so
-      // the cursor cannot tell "not ready yet" from "nothing here, ever".
-      //
-      // An unknown/absent status means we cannot tell; treat it as done rather
-      // than blocking, so those Items never sit in a pointless retry loop.
-      const awaitingPull =
-        updateStatus === "NOT_READY" ||
-        updateStatus === "INITIAL_UPDATE_COMPLETE";
-
-      if (waitForInitialPull && awaitingPull && retryIndex < maxRetries) {
-        const delay = Math.min(initialDelay * 2 ** retryIndex, maxDelay);
-        console.debug(
-          `connection ${connectionId}: ${updateStatus}, retrying in ${delay}ms (attempt ${retryIndex + 1}/${maxRetries})`,
+    let removed = 0;
+    for (const tx of updates.removed) {
+      if (!tx.transaction_id) continue;
+      await db
+        .update(transactions)
+        .set({ status: "deleted", updatedAt: new Date() })
+        .where(
+          sql`${transactions.providerTransactionId} = ${tx.transaction_id}`,
         );
-        await sleep(delay);
-        retryIndex++;
-        continue;
-      }
-
-      break;
+      removed++;
     }
 
     if (skippedAccountIds.size > 0) {
@@ -399,7 +325,8 @@ class PlaidService {
       .where(eq(accountConnections.id, connectionId));
 
     console.debug(
-      `connection ${connectionId}: sync complete — added=${added}, modified=${modified}, removed=${removed}`,
+      `connection ${connectionId}: sync complete, status=${updateStatus}, ` +
+        `added=${added}, modified=${modified}, removed=${removed}`,
     );
 
     return { nextCursor, added, modified, removed, updateStatus };
@@ -426,7 +353,9 @@ class PlaidService {
     try {
       await plaidClient.itemRemove({ access_token: accessToken });
       return true;
-    } catch {
+    } catch (err) {
+      // The Item keeps billing until removed, so this shouldn't pass quietly.
+      console.warn(`Plaid Item removal failed: ${extractPlaidError(err).message}`);
       return false;
     }
   }

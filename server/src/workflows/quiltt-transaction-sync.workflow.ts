@@ -221,12 +221,6 @@ export class QuilttTransactionSyncWorkflow {
         `Quiltt transaction sync failed for connection ${connectionId}: ${message}`,
       );
 
-      await QuilttTransactionSyncWorkflow.notifyDisconnect(
-        userId,
-        connectionId,
-        message,
-      );
-
       return null;
     }
   }

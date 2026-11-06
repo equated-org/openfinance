@@ -247,6 +247,100 @@ describe("PlaidTransactionSyncWorkflow upstream pull", () => {
     expect(terminalUpdate()?.errorCode).toBe("UPSTREAM_NOT_READY");
   });
 
+  it("doesn't wait out the backoff once a slow pull lands", async () => {
+    withConnection(connection());
+    mockGetItemStatus.mockResolvedValue({ lastSuccessfulUpdate: null });
+    mockSyncTransactions
+      .mockResolvedValueOnce(
+        syncResult({ updateStatus: "INITIAL_UPDATE_COMPLETE", added: 40 }),
+      )
+      .mockResolvedValueOnce(syncResult({ added: 60 }));
+
+    const result = await PlaidTransactionSyncWorkflow.run({
+      connectionId: 1,
+      userId: "user-1",
+      syncJobId: 508,
+      awaitUpstreamPull: true,
+    });
+
+    expect(sleepCalls).toEqual([5_000]);
+    expect(result).toMatchObject({ added: 100 });
+    expect(terminalUpdate()?.status).toBe("success");
+  });
+
+  describe("a scheduled sync", () => {
+    const { lastSuccessfulUpdate, lastFailedUpdate, itemCreatedAt } = {
+      lastSuccessfulUpdate: new Date(),
+      lastFailedUpdate: null,
+      itemCreatedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    const healthy = { lastSuccessfulUpdate, lastFailedUpdate, itemCreatedAt };
+
+    async function poll(syncJobId: number) {
+      await PlaidTransactionSyncWorkflow.run({
+        connectionId: 1,
+        userId: "user-1",
+        syncJobId,
+      });
+    }
+
+    async function emailed() {
+      const { notificationService } = await import(
+        "../lib/notification.service"
+      );
+      return notificationService.sendAccountDisconnectEmail;
+    }
+
+    it("reports Plaid's real code for an Item error the user must fix", async () => {
+      withConnection(connection({ transactionCursor: "cursor-1" }));
+      mockSyncTransactions.mockResolvedValue(syncResult());
+      mockGetItemStatus.mockResolvedValue({
+        ...healthy,
+        itemError: { error_code: "USER_PERMISSION_REVOKED" },
+      });
+
+      await poll(509);
+
+      expect(terminalUpdate()).toMatchObject({
+        status: "error",
+        errorCode: "USER_PERMISSION_REVOKED",
+      });
+      expect(await emailed()).toHaveBeenCalledOnce();
+    });
+
+    // Reporting this as a broken login would park the connection for good.
+    it("doesn't park a connection over a transient Item error", async () => {
+      withConnection(connection({ transactionCursor: "cursor-1" }));
+      mockSyncTransactions.mockResolvedValue(syncResult());
+      mockGetItemStatus.mockResolvedValue({
+        ...healthy,
+        itemError: { error_code: "INSTITUTION_DOWN" },
+      });
+
+      await poll(510);
+
+      expect(terminalUpdate()?.status).toBe("success");
+      expect(await emailed()).not.toHaveBeenCalled();
+    });
+
+    it("retries a transient failure quietly", async () => {
+      withConnection(connection());
+      mockSyncTransactions.mockRejectedValue(
+        Object.assign(new Error("try later"), {
+          errorCode: "INTERNAL_SERVER_ERROR",
+        }),
+      );
+
+      await poll(511);
+
+      expect(terminalUpdate()).toMatchObject({
+        status: "error",
+        errorCode: "INTERNAL_SERVER_ERROR",
+      });
+      expect(await emailed()).not.toHaveBeenCalled();
+    });
+  });
+
   it("UPSTREAM_NOT_READY does not raise a reconnect notification", async () => {
     const { notificationService } = await import("../lib/notification.service");
 

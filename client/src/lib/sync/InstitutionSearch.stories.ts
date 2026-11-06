@@ -62,27 +62,6 @@ const mockInstitutions: InstitutionType[] = [
       oauth: false,
       products: ["transactions", "auth"],
       routingNumbers: [],
-      connectionHealth: {
-        item_logins: {
-          status: "DEGRADED",
-          last_status_change: "2024-01-01",
-          breakdown: {
-            success: 0.75,
-            error_institution: 0.2,
-            error_plaid: 0.05,
-          },
-        },
-        transactions_updates: {
-          status: "HEALTHY",
-          last_status_change: "2024-01-01",
-          breakdown: {
-            success: 0.98,
-            error_institution: 0.01,
-            error_plaid: 0.01,
-          },
-        },
-        lastUpdated: "2024-01-01",
-      },
     },
     mxData: {
       institutionCode: "citi",

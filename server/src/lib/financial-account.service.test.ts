@@ -196,6 +196,26 @@ describe("FinancialAccountService", () => {
       }
     });
 
+    // A connection failed like this for 81 days with no prompt at all.
+    it("should return syncError for any error once a week passes without a sync", async () => {
+      const setLastSync = (lastSyncedAt: Date | null) =>
+        db
+          .update(accountConnections)
+          .set({ lastSyncedAt })
+          .where(eq(accountConnections.id, connectionId));
+
+      await setLastSync(new Date(Date.now() - 8 * 24 * 60 * 60 * 1000));
+
+      const accounts =
+        await financialAccountService.getAccountsByUserId(testUserId);
+
+      for (const account of accounts) {
+        expect(account.syncError).not.toBeNull();
+      }
+
+      await setLastSync(null);
+    });
+
     it("should clear syncError when a newer successful sync job exists", async () => {
       // Insert a successful sync job after the error one
       await db.insert(syncJobs).values({

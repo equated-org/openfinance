@@ -43,16 +43,19 @@ export const notificationService = {
   }) {
     const { userId, connectionId, errorMessage } = params;
 
-    // Dedup: skip if we already sent one for this connection in the last 24h
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // At most one a week per connection. Only this email counts: polling stops
+    // after a login error, so a routine sync notice that suppressed it would
+    // leave the user never told at all.
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const existing = await db
       .select({ id: notifications.id })
       .from(notifications)
       .where(
         and(
           eq(notifications.userId, userId),
-          gt(notifications.sentAt, oneDayAgo),
+          gt(notifications.sentAt, weekAgo),
           sql`${notifications.metadata}->>'connectionId' = ${String(connectionId)}`,
+          sql`${notifications.metadata}->>'type' = 'account_disconnected'`,
         ),
       )
       .limit(1);
