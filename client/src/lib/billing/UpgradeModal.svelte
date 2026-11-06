@@ -6,6 +6,7 @@
     DialogDescription,
     DialogHeader,
   } from "$lib/components/ui/dialog";
+  import { Button } from "$lib/components/ui/button";
   import { createCheckoutSession, changePlan } from "./api";
   import { refreshBillingState } from "./state";
   import { PLAN_LIMITS, PLAN_PRICES, type PlanType } from "@openfinance/shared";
@@ -86,9 +87,10 @@
         <p class="mt-3 text-sm text-red-600">{error}</p>
       {/if}
 
-      <button
+      <Button
         onclick={handleUpgrade}
-        class="mt-6 w-full rounded-full bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
+        size="lg"
+        class="mt-6 w-full"
         disabled={loading}
       >
         {#if loading}
@@ -98,7 +100,7 @@
         {:else}
           Get {requiredPlan.charAt(0).toUpperCase() + requiredPlan.slice(1)} plan
         {/if}
-      </button>
+      </Button>
     </div>
   </DialogContent>
 </Dialog>
