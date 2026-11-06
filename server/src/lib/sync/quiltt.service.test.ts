@@ -380,6 +380,48 @@ describe("QuilttService.syncTransactions", () => {
     expect(byProviderId("quiltt_txn_unknown")?.isoCurrencyCode).toBeNull();
   });
 
+  // Quiltt returns every transaction on every sync, so counting them all posted
+  // a "Synced N transactions" notice every 30 minutes.
+  it("counts only transactions it hasn't seen before", async () => {
+    vi.spyOn(quilttService, "getConnection").mockResolvedValue({
+      id: quilttConnectionId,
+      provider: "plaid_aggregated",
+      status: "SYNCED",
+      institution: { id: "inst_cibc", name: "CIBC Canada" },
+      accounts: [
+        {
+          id: "quiltt_acct_cad",
+          name: "CHECKING",
+          kind: "CHECKING",
+          mask: "7388",
+          currencyCode: "CAD",
+          balance: { current: 77455.46, available: 77455.46 },
+        },
+      ],
+    });
+    vi.spyOn(quilttService, "getAllTransactions").mockResolvedValue([
+      {
+        id: "quiltt_txn_repeated",
+        date: "2026-07-04",
+        description: "Returned on every sync",
+        amount: 12,
+        entryType: "DEBIT",
+        status: "POSTED",
+        account: { id: "quiltt_acct_cad" },
+      },
+    ]);
+
+    const sync = () =>
+      quilttService.syncTransactions({
+        connectionId,
+        quilttConnectionId,
+        quilttProfileId: "profile_1",
+      });
+
+    expect(await sync()).toEqual({ added: 1 });
+    expect(await sync()).toEqual({ added: 0 });
+  });
+
   // Connections made before Quiltt named them point at the old Mastercard
   // catalog; their next sync moves them onto Quiltt's institution.
   it("moves a connection onto the institution Quiltt reports", async () => {
