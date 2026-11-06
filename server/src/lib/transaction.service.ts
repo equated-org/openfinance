@@ -28,6 +28,9 @@ import type {
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
+// With no parameters, unsafe() defaults to the simple protocol, which would run
+// several statements from one string. The extended protocol refuses them.
+const SINGLE_STATEMENT = { prepare: false, simple: false };
 
 function parseDateInput(value: string, endOfDay = false): Date | undefined {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
@@ -244,23 +247,34 @@ class TransactionService {
   ): Promise<QueryTransactionsResponse | QueryTransactionsErrorResponse> {
     try {
       const validatedSql = await prepareTransactionQuery(userSql);
-      const rows = await client.begin("READ ONLY", async (tx) => {
-        await tx.unsafe("SET LOCAL statement_timeout = '5s'");
+      const rows = await client.begin(async (tx) => {
         await tx.unsafe("SET LOCAL search_path = pg_catalog, pg_temp");
         await tx.unsafe("SET LOCAL standard_conforming_strings = on");
-        return tx.unsafe(
-          `WITH txns AS (
+        // Nothing here has to survive a crash, so commit without waiting for disk.
+        await tx.unsafe("SET LOCAL synchronous_commit = off");
+        // txns has no statistics, so estimates are poor. Without this, a small
+        // self join can become a nested loop that runs into the timeout.
+        await tx.unsafe("SET LOCAL enable_nestloop = off");
+        await tx.unsafe("SET LOCAL jit = off");
+        // A large account can take seconds to read from disk. The copy is our
+        // own SQL, so it gets more time than the caller's query does.
+        await tx.unsafe("SET LOCAL statement_timeout = '30s'");
+        // Caller SQL only ever sees this copy. Planned against
+        // public.transactions, it could read statistics that cover every user.
+        await tx.unsafe(
+          `CREATE TEMP TABLE txns ON COMMIT DROP AS
   SELECT
     id, name, amount::numeric, date, authorized_date,
     merchant_name, pending, iso_currency_code,
     account_id, status, created_at, updated_at
   FROM public.transactions
   WHERE user_id = $1 AND status != 'deleted'
-    AND account_id NOT IN (SELECT id FROM public.financial_accounts WHERE status = 'hidden' AND user_id = $1)
-)
-${validatedSql}`,
+    AND account_id NOT IN (SELECT id FROM public.financial_accounts WHERE status = 'hidden' AND user_id = $1)`,
           [userId],
         );
+        await tx.unsafe("SET LOCAL statement_timeout = '5s'");
+        await tx.unsafe("SET TRANSACTION READ ONLY");
+        return tx.unsafe(validatedSql, [], SINGLE_STATEMENT);
       });
       return { rows: Array.from(rows), rowCount: rows.length };
     } catch (error: unknown) {

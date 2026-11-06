@@ -340,6 +340,48 @@ describe("TransactionService", () => {
       ]);
     });
 
+    it("keeps other users' text out of query planning", async () => {
+      const name = "Payee Only Another User Has";
+      const [account] = await db
+        .select({ id: financialAccounts.id })
+        .from(financialAccounts)
+        .where(eq(financialAccounts.userId, otherUserId));
+      const inserted = await db
+        .insert(transactions)
+        .values(
+          Array.from({ length: 50 }, () => ({
+            userId: otherUserId,
+            accountId: account.id,
+            providerTransactionId: `txn_${randomUUID()}`,
+            name,
+            amount: "1.00",
+            date: new Date("2025-01-01"),
+          })),
+        )
+        .returning({ id: transactions.id });
+      try {
+        await client.unsafe("ANALYZE public.transactions");
+        // A pattern ending in a bare escape fails only when something reads a
+        // longer value that contains it, so planning against the shared
+        // statistics on public.transactions would show other users' text.
+        const outcome = (text: string) =>
+          transactionService.queryTransactions(
+            testUserId,
+            `SELECT 1 FROM txns WHERE name LIKE '%${text}\\'`,
+          );
+        expect(await outcome(name.slice(0, -1))).toEqual(
+          await outcome("Text Nobody Has"),
+        );
+      } finally {
+        await db.delete(transactions).where(
+          inArray(
+            transactions.id,
+            inserted.map(({ id }) => id),
+          ),
+        );
+      }
+    });
+
     it("keeps documented date and merchant analyses working", async () => {
       const monthly = successful(
         await transactionService.queryTransactions(

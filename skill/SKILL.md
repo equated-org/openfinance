@@ -123,7 +123,7 @@ curl -s -X POST "$BASE_URL/api/transactions/query" \
   | cat
 ```
 
-### `txns` CTE columns
+### `txns` columns
 
 `id`, `name`, `amount` (numeric), `date` (timestamp), `authorized_date`, `merchant_name`, `pending`, `iso_currency_code`, `account_id`, `status`, `created_at`, `updated_at`
 
@@ -242,5 +242,5 @@ Response (`201`):
 - **Use `fields` parameter** on GET /api/transactions to reduce payload size when you only need a few columns.
 - **Pagination**: the response doesn't include a cursor. If a page returns `limit` transactions, request the next one with `cursor=<date>:<id>` from the last transaction, keeping the other parameters the same. Cursors only work with the default date sort.
 - **Amount values** are positive for debits (money spent) and negative for credits (money received).
-- When constructing SQL, always reference the `txns` CTE directly — do not define your own CTE or use transaction control statements.
+- When constructing SQL, always reference `txns` directly — do not define your own CTE or use transaction control statements.
 - **Disconnected accounts**: if an account has a `syncError`, create a reconnect link and send it to the owner rather than asking them to open the app.
