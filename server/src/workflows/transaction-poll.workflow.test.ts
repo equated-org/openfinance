@@ -17,6 +17,8 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
   let disconnectedConnId: number;
   let transientErrorConnId: number;
   let staleConnId: number;
+  let strandedConnId: number;
+  let runningConnId: number;
   let registryId: number;
 
   beforeAll(async () => {
@@ -90,6 +92,34 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
       .returning();
     staleConnId = conn3.id;
 
+    // Connection 4: pending for hours, so its workflow is gone
+    const [conn4] = await db
+      .insert(accountConnections)
+      .values({
+        userId: testUserId,
+        provider: "plaid",
+        institutionRegistryId: registryId,
+        plaidItemId: `item_${randomUUID().slice(0, 8)}`,
+        plaidAccessToken: `access_${randomUUID()}`,
+        status: "active",
+      })
+      .returning();
+    strandedConnId = conn4.id;
+
+    // Connection 5: pending and recent, so a sync is really running
+    const [conn5] = await db
+      .insert(accountConnections)
+      .values({
+        userId: testUserId,
+        provider: "plaid",
+        institutionRegistryId: registryId,
+        plaidItemId: `item_${randomUUID().slice(0, 8)}`,
+        plaidAccessToken: `access_${randomUUID()}`,
+        status: "active",
+      })
+      .returning();
+    runningConnId = conn5.id;
+
     await db.insert(financialAccounts).values([
       {
         userId: testUserId,
@@ -148,6 +178,24 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
       errorMessage: "Your bank hasn't sent new transactions in a while.",
       errorCode: "STALE_DATA",
     });
+
+    await db.insert(syncJobs).values([
+      {
+        userId: testUserId,
+        accountConnectionId: strandedConnId,
+        provider: "plaid",
+        jobType: "transactions",
+        status: "pending",
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+      {
+        userId: testUserId,
+        accountConnectionId: runningConnId,
+        provider: "plaid",
+        jobType: "transactions",
+        status: "pending",
+      },
+    ]);
   });
 
   afterAll(async () => {
@@ -175,6 +223,21 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
     expect(ids).toContain(transientErrorConnId);
     // Stale → still retried; only the user-facing prompt differs
     expect(ids).toContain(staleConnId);
+  });
+
+  it("frees a connection whose job was stranded, but not one still syncing", async () => {
+    const pollable = async () =>
+      (await TransactionPollWorkflow.fetchActiveConnections()).map((c) => c.id);
+
+    // Both are parked until the stranded job is expired.
+    expect(await pollable()).not.toContain(strandedConnId);
+    expect(await pollable()).not.toContain(runningConnId);
+
+    await TransactionPollWorkflow.expireStaleJobs();
+
+    const ids = await pollable();
+    expect(ids).toContain(strandedConnId);
+    expect(ids).not.toContain(runningConnId);
   });
 
   it("skips scheduled polls while DISABLE_SCHEDULED_JOBS is set", async () => {

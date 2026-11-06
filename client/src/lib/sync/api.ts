@@ -1,5 +1,6 @@
 import { apiFetch } from "$lib/api-client";
 import type { SearchInstitutionsResponse } from "@openfinance/shared";
+import type { PlaidError, PlaidExitMetadata } from "./sdk";
 
 export interface ApiKey {
   id: number;
@@ -43,6 +44,23 @@ export function exchangePlaidPublicToken(
     body: JSON.stringify({
       public_token: publicToken,
       institution_id: institutionId,
+    }),
+  });
+}
+
+export function reportPlaidLinkExit(
+  err: PlaidError | null,
+  metadata: PlaidExitMetadata,
+) {
+  return apiFetch<{ ok: boolean }>("/api/plaid/link_exit", {
+    method: "POST",
+    body: JSON.stringify({
+      status: metadata.status,
+      institution_id: metadata.institution?.institution_id,
+      link_session_id: metadata.link_session_id,
+      request_id: metadata.request_id,
+      error_type: err?.error_type,
+      error_code: err?.error_code,
     }),
   });
 }

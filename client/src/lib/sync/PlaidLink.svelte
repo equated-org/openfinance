@@ -3,8 +3,15 @@
     createPlaidLinkToken,
     createPlaidLinkTokenForUpdate,
     exchangePlaidPublicToken,
+    reportPlaidLinkExit,
   } from "./api";
-  import { loadPlaidSdk, type PlaidHandler } from "./sdk";
+  import {
+    loadPlaidSdk,
+    type PlaidError,
+    type PlaidExitMetadata,
+    type PlaidHandler,
+  } from "./sdk";
+  import { toast } from "svelte-sonner";
 
   interface Props {
     onAccountLinked?: () => void;
@@ -19,6 +26,20 @@
   }: Props = $props();
 
   let handler: PlaidHandler | null = null;
+
+  function handleExit(err: PlaidError | null, metadata: PlaidExitMetadata) {
+    handler = null;
+    // Only the browser learns how a session ended, so pass it on.
+    reportPlaidLinkExit(err, metadata).catch(() => {});
+    if (err) {
+      const bank = metadata.institution?.name ?? "your bank";
+      toast.error(`Couldn't connect ${bank}`, {
+        description:
+          err.display_message ?? "Please try again in a few minutes.",
+      });
+    }
+    onExit();
+  }
 
   export async function initiatePlaidLink(institutionId?: string) {
     await loadPlaidSdk();
@@ -37,12 +58,10 @@
           onSyncStarted();
         } catch (err) {
           console.error("Failed to exchange token:", err);
+          toast.error("Failed to connect account");
         }
       },
-      onExit: (_err, _metadata) => {
-        handler = null;
-        onExit();
-      },
+      onExit: handleExit,
       onEvent: (_eventName, _metadata) => {},
     });
 
@@ -66,12 +85,10 @@
           onSyncStarted();
         } catch (err) {
           console.error("Failed to exchange token during reauth:", err);
+          toast.error("Failed to reconnect account");
         }
       },
-      onExit: (_err, _metadata) => {
-        handler = null;
-        onExit();
-      },
+      onExit: handleExit,
       onEvent: (_eventName, _metadata) => {},
     });
 
