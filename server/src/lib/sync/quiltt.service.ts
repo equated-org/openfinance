@@ -625,7 +625,7 @@ class QuilttService {
       // account's transactions aren't filed under a currency Quiltt never sent.
       const isoCurrencyCode = tx.currencyCode ?? account.isoCurrencyCode ?? null;
 
-      await db
+      const [saved] = await db
         .insert(transactions)
         .values({
           userId: account.userId,
@@ -651,8 +651,12 @@ class QuilttService {
             raw: tx as unknown as Record<string, unknown>,
             updatedAt: new Date(),
           },
-        });
-      added++;
+        })
+        // Quiltt returns every transaction on every sync, so only a row that
+        // was actually inserted is new. xmax is 0 for those.
+        .returning({ isNew: sql<boolean>`xmax = 0` });
+
+      if (saved.isNew) added++;
     }
 
     // Update lastSyncedAt on the connection
