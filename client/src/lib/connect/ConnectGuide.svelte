@@ -436,20 +436,24 @@
   {@render codeBlock("prompt", agentPrompt, agentPrompt)}
 </div>
 
-<Tabs.Root bind:value={tab}>
+<Tabs.Root bind:value={tab} class="@container">
+  <!-- Too many apps for one row. Sized by the container, not the viewport: the
+       sidebar makes the content narrower at 768px wide than at 767px. -->
   <Tabs.List
-    class="flex max-w-full justify-start gap-1 overflow-x-auto [scrollbar-width:none] border-b border-[var(--border)] mb-5"
+    class="mb-5 flex h-auto w-full flex-wrap gap-2 bg-transparent p-0 @sm:grid @sm:grid-cols-3 @2xl:grid-cols-5"
   >
     {#each guides as guide}
       <Tabs.Trigger
         value={guide.value}
-        class="flex shrink-0 items-center gap-2 px-2.5 py-2 text-sm font-medium text-[var(--text-muted)] border-b-2 border-transparent data-[state=active]:text-[var(--text)] data-[state=active]:border-[var(--text)] transition-colors cursor-pointer"
+        class="h-auto flex-auto cursor-pointer justify-start border-[var(--border)] px-2.5 py-2 transition-colors hover:text-[var(--text)] data-[state=active]:border-[var(--text)] data-[state=active]:shadow-none"
       >
         {#if typeof guide.logo === "string"}
+          <!-- White behind every logo: some are black on transparent, which
+               would vanish in dark mode. -->
           <img
             src="https://img.logo.dev/{guide.logo}?token={logoDevKey}&size=64&format=png"
             alt={guide.label}
-            class="h-4 w-4"
+            class="h-4 w-4 rounded-sm bg-white"
           />
         {:else}
           {@const Icon = guide.logo}
@@ -461,7 +465,7 @@
   </Tabs.List>
 
   {#each guides as guide}
-    <Tabs.Content value={guide.value} class="pl-1">
+    <Tabs.Content value={guide.value}>
       {#each guide.sections as section, s}
         <div class={s > 0 ? "mt-8" : ""}>
           {#if section.title}
