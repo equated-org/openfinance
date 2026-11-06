@@ -56,6 +56,17 @@
   </div>
 
   <div class="border-t border-[var(--border)] pt-6">
+    <p class="text-sm text-[var(--text-muted)]">
+      Need help? Email
+      <a
+        href="mailto:hello@openfinance.sh"
+        class="text-[var(--text)] underline underline-offset-2"
+        >hello@openfinance.sh</a
+      >.
+    </p>
+  </div>
+
+  <div class="border-t border-[var(--border)] pt-6">
     <p class="mt-1 text-sm text-[var(--text-muted)]">
       Permanently delete your account and all associated user data.
     </p>
