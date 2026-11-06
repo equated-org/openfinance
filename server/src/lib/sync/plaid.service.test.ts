@@ -15,9 +15,6 @@ vi.mock("./plaid.client", () => ({
     itemGet: mockItemGet,
     accountsGet: mockAccountsGet,
   },
-  extractPlaidError: (err: { errorCode?: string }) => ({
-    errorCode: err.errorCode,
-  }),
 }));
 
 const mockDbChain = () => {
@@ -44,7 +41,12 @@ vi.mock("../../schema", () => ({
     providerAccountId: "providerAccountId",
     userId: "userId",
   },
-  accountConnections: { id: "id", userId: "userId" },
+  accountConnections: {
+    id: "id",
+    userId: "userId",
+    plaidAccessToken: "plaidAccessToken",
+    transactionCursor: "transactionCursor",
+  },
   syncJobs: {},
   institutionRegistry: {},
   transactions: {
@@ -55,8 +57,8 @@ vi.mock("../../schema", () => ({
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
-  sql: vi.fn(),
   and: vi.fn(),
+  inArray: vi.fn(),
   isNull: vi.fn(),
 }));
 vi.mock("@dbos-inc/dbos-sdk", () => ({ DBOS: {} }));
@@ -111,14 +113,40 @@ function accountRows(...providerAccountIds: string[]) {
   }));
 }
 
+/** The connection row `loadConnection` reads. */
+let connectionRow: {
+  userId: string;
+  accessToken: string | null;
+  cursor: string | null;
+};
+
 /**
  * `where` ends some chains (awaited directly) and continues the connection
  * lookup (`.limit(1)`), so it returns something that is both.
  */
 function whereResult(rows: unknown[]) {
   return Object.assign(Promise.resolve(rows), {
-    limit: () => Promise.resolve(rows),
+    limit: () => Promise.resolve([connectionRow]),
   });
+}
+
+/** Points the db mock at connection 1, with one account. */
+function wireDb() {
+  connectionRow = { userId: "user-1", accessToken: "access-token", cursor: null };
+  dbMock.select = vi.fn().mockReturnValue(dbMock);
+  dbMock.from = vi.fn().mockReturnValue(dbMock);
+  dbMock.where = vi.fn(() => whereResult(accountRows("plaid-acct-1")));
+  dbMock.insert = vi.fn().mockReturnValue(dbMock);
+  dbMock.values = vi.fn().mockReturnValue(dbMock);
+  dbMock.onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+  dbMock.update = vi.fn().mockReturnValue(dbMock);
+  dbMock.set = vi.fn().mockReturnValue(dbMock);
+}
+
+/** Syncs connection 1 from a saved cursor. */
+function syncFrom(cursor: string | null) {
+  connectionRow.cursor = cursor;
+  return plaidService.syncTransactions(1);
 }
 
 /** Build a minimal Plaid transaction object */
@@ -144,15 +172,7 @@ describe("PlaidService.syncTransactions", () => {
       data: { accounts: [makeAccount("plaid-acct-1")] },
     });
 
-    // Re-wire the db mock chain for each test
-    dbMock.select = vi.fn().mockReturnValue(dbMock);
-    dbMock.from = vi.fn().mockReturnValue(dbMock);
-    dbMock.where = vi.fn(() => whereResult(accountRows("plaid-acct-1")));
-    dbMock.insert = vi.fn().mockReturnValue(dbMock);
-    dbMock.values = vi.fn().mockReturnValue(dbMock);
-    dbMock.onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
-    dbMock.update = vi.fn().mockReturnValue(dbMock);
-    dbMock.set = vi.fn().mockReturnValue(dbMock);
+    wireDb();
   });
 
   it("syncs transactions on first call when data is ready", async () => {
@@ -164,11 +184,7 @@ describe("PlaidService.syncTransactions", () => {
       }),
     );
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: null,
-    });
+    const result = await syncFrom(null);
 
     expect(result.added).toBe(2);
     expect(result.nextCursor).toBe("cursor-1");
@@ -205,11 +221,7 @@ describe("PlaidService.syncTransactions", () => {
         });
       });
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: "cursor-1",
-    });
+    const result = await syncFrom("cursor-1");
 
     expect(savedBeforeLastPage).toEqual([]);
     expect(savedTransactionIds()).toEqual(["tx-1", "tx-2"]);
@@ -236,11 +248,7 @@ describe("PlaidService.syncTransactions", () => {
         makeSyncResponse({ added: [makeTx("tx-1")], next_cursor: "cursor-2" }),
       );
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: "cursor-1",
-    });
+    const result = await syncFrom("cursor-1");
 
     expect(mockTransactionsSync.mock.calls.map(([req]) => req.cursor)).toEqual([
       "cursor-1",
@@ -255,11 +263,7 @@ describe("PlaidService.syncTransactions", () => {
     mockTransactionsSync.mockRejectedValue(dataChanged);
 
     await expect(
-      plaidService.syncTransactions({
-        connectionId: 1,
-        accessToken: "access-token",
-        cursor: "cursor-1",
-      }),
+      syncFrom("cursor-1"),
     ).rejects.toBe(dataChanged);
 
     expect(mockTransactionsSync).toHaveBeenCalledTimes(3);
@@ -273,11 +277,7 @@ describe("PlaidService.syncTransactions", () => {
     mockTransactionsSync.mockRejectedValue(loginRequired);
 
     await expect(
-      plaidService.syncTransactions({
-        connectionId: 1,
-        accessToken: "access-token",
-        cursor: "cursor-1",
-      }),
+      syncFrom("cursor-1"),
     ).rejects.toBe(loginRequired);
 
     expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
@@ -292,11 +292,7 @@ describe("PlaidService.syncTransactions", () => {
       }),
     );
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: "cursor-1",
-    });
+    const result = await syncFrom("cursor-1");
 
     expect(mockTransactionsSync).toHaveBeenCalledTimes(1);
     expect(result.added).toBe(1);
@@ -333,11 +329,7 @@ describe("PlaidService.syncTransactions", () => {
       }),
     );
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: "cursor-1",
-    });
+    const result = await syncFrom("cursor-1");
 
     expect(dbMock.values).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -353,17 +345,41 @@ describe("PlaidService.syncTransactions", () => {
     expect(result.added).toBe(1);
   });
 
+  it("only removes transactions from this connection's accounts", async () => {
+    const { inArray } = await import("drizzle-orm");
+    mockTransactionsSync.mockResolvedValueOnce(
+      makeSyncResponse({
+        removed: [{ transaction_id: "tx-gone", account_id: "plaid-acct-1" }],
+        next_cursor: "cursor-2",
+      }),
+    );
+
+    const result = await syncFrom("cursor-1");
+
+    expect(result.removed).toBe(1);
+    expect(dbMock.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "deleted" }),
+    );
+    expect(inArray).toHaveBeenCalledWith("accountId", [1]);
+    expect(inArray).toHaveBeenCalledWith("providerTransactionId", ["tx-gone"]);
+  });
+
+  it("fails when the connection has no access token", async () => {
+    connectionRow.accessToken = null;
+
+    await expect(plaidService.syncTransactions(1)).rejects.toThrow(
+      "Connection 1 not found or missing access token",
+    );
+    expect(mockTransactionsSync).not.toHaveBeenCalled();
+  });
+
   it("warns about transactions for an account Plaid didn't list", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockTransactionsSync.mockResolvedValueOnce(
       makeSyncResponse({ added: [makeTx("tx-1", "plaid-acct-9")] }),
     );
 
-    const result = await plaidService.syncTransactions({
-      connectionId: 1,
-      accessToken: "access-token",
-      cursor: "cursor-1",
-    });
+    const result = await syncFrom("cursor-1");
 
     expect(result.added).toBe(0);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("plaid-acct-9"));
@@ -374,6 +390,7 @@ describe("PlaidService.syncTransactions", () => {
 describe("PlaidService.getItemStatus", () => {
   beforeEach(() => {
     mockItemGet.mockReset();
+    wireDb();
   });
 
   it("parses transaction status timestamps and item fields", async () => {
@@ -392,8 +409,9 @@ describe("PlaidService.getItemStatus", () => {
       },
     });
 
-    const result = await plaidService.getItemStatus("access-token");
+    const result = await plaidService.getItemStatus(1);
 
+    expect(mockItemGet).toHaveBeenCalledWith({ access_token: "access-token" });
     expect(result.lastSuccessfulUpdate?.toISOString()).toBe(
       "2026-04-27T07:47:05.046Z",
     );
@@ -414,7 +432,7 @@ describe("PlaidService.getItemStatus", () => {
       },
     });
 
-    const result = await plaidService.getItemStatus("access-token");
+    const result = await plaidService.getItemStatus(1);
 
     expect(result.lastSuccessfulUpdate).toBeNull();
     expect(result.lastFailedUpdate).toBeNull();
@@ -439,7 +457,7 @@ describe("PlaidService.getItemStatus", () => {
       },
     });
 
-    const result = await plaidService.getItemStatus("access-token");
+    const result = await plaidService.getItemStatus(1);
     expect(result.itemError).toEqual(itemError);
     expect(result.lastSuccessfulUpdate).toBeNull();
     expect(result.lastFailedUpdate?.toISOString()).toBe(

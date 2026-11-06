@@ -9,6 +9,28 @@
  * env vars for a string list.
  */
 
+/** Why a sync failed. With no code, it's simply retried on the next poll. */
+export class SyncFailure extends Error {
+  constructor(
+    message: string,
+    readonly errorCode?: string,
+  ) {
+    super(message);
+    this.name = "SyncFailure";
+  }
+}
+
+/** By shape, not class: DBOS replays a recorded step error as a plain Error. */
+export function readFailure(err: unknown): {
+  errorCode?: string;
+  message: string;
+} {
+  return {
+    errorCode: (err as { errorCode?: string } | null)?.errorCode,
+    message: err instanceof Error ? err.message : "Unknown sync error",
+  };
+}
+
 /**
  * Plaid codes that won't clear until the user acts: signing in again through
  * Link's update mode, finishing something on the bank's own site, or linking

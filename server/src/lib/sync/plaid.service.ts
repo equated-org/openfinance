@@ -1,9 +1,6 @@
 import type { RemovedTransaction, Transaction } from "plaid";
-import {
-  extractPlaidError,
-  plaidClient,
-  PLAID_COUNTRY_CODES,
-} from "./plaid.client";
+import { plaidClient, PLAID_COUNTRY_CODES } from "./plaid.client";
+import { readFailure } from "./disconnect-codes";
 import { db } from "../../db";
 import { DBOS } from "@dbos-inc/dbos-sdk";
 import { PlaidTransactionSyncWorkflow } from "../../workflows/plaid-transaction-sync.workflow";
@@ -14,7 +11,7 @@ import {
   institutionRegistry,
   transactions,
 } from "../../schema";
-import { eq, sql, and, isNull } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 import { user as userTable } from "../../schema";
 
 /** Plaid's largest page, so a big update has fewer chances to be interrupted. */
@@ -173,6 +170,30 @@ class PlaidService {
   }
 
   /**
+   * Read here rather than passed in by a workflow: DBOS stores what a step
+   * returns, so a token held in workflow state is written out on every sync.
+   */
+  private async loadConnection(connectionId: number) {
+    const [connection] = await db
+      .select({
+        userId: accountConnections.userId,
+        accessToken: accountConnections.plaidAccessToken,
+        cursor: accountConnections.transactionCursor,
+      })
+      .from(accountConnections)
+      .where(eq(accountConnections.id, connectionId))
+      .limit(1);
+
+    if (!connection?.accessToken) {
+      throw new Error(
+        `Connection ${connectionId} not found or missing access token`,
+      );
+    }
+
+    return { ...connection, accessToken: connection.accessToken };
+  }
+
+  /**
    * Every update since `cursor`. If the data changes between pages, Plaid
    * rejects the next page and the whole update has to start over from `cursor`.
    * That's why nothing is saved until every page is in: a half-saved attempt
@@ -205,37 +226,20 @@ class PlaidService {
         }
       } catch (err) {
         const restart =
-          extractPlaidError(err).errorCode ===
+          readFailure(err).errorCode ===
           "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
         if (!restart || attempt === MAX_SYNC_ATTEMPTS) throw err;
       }
     }
   }
 
-  async syncTransactions(params: {
-    connectionId: number;
-    accessToken: string;
-    cursor: string | null;
-  }) {
-    const { connectionId, accessToken, cursor } = params;
-
-    const [connection] = await db
-      .select({ userId: accountConnections.userId })
-      .from(accountConnections)
-      .where(eq(accountConnections.id, connectionId))
-      .limit(1);
-
-    if (!connection) {
-      throw new Error(`Connection ${connectionId} not found`);
-    }
+  async syncTransactions(connectionId: number) {
+    const { userId, accessToken, cursor } =
+      await this.loadConnection(connectionId);
 
     // Before reading transactions: /transactions/sync returns each one only
     // once, so one for an account without a row yet would be lost for good.
-    await this.upsertAccounts({
-      userId: connection.userId,
-      connectionId,
-      accessToken,
-    });
+    await this.upsertAccounts({ userId, connectionId, accessToken });
 
     // Get accounts for this connection to map account IDs
     const accounts = await db
@@ -296,16 +300,23 @@ class PlaidService {
     let modified = 0;
     for (const tx of updates.modified) modified += await save(tx);
 
-    let removed = 0;
-    for (const tx of updates.removed) {
-      if (!tx.transaction_id) continue;
+    // Limited to this connection's accounts: transaction ids are only unique
+    // per account, and this table holds every user's rows.
+    const removedIds = updates.removed.map((tx) => tx.transaction_id);
+    const removed = removedIds.length;
+    if (removed > 0) {
       await db
         .update(transactions)
         .set({ status: "deleted", updatedAt: new Date() })
         .where(
-          sql`${transactions.providerTransactionId} = ${tx.transaction_id}`,
+          and(
+            inArray(
+              transactions.accountId,
+              accounts.map((a) => a.id),
+            ),
+            inArray(transactions.providerTransactionId, removedIds),
+          ),
         );
-      removed++;
     }
 
     if (skippedAccountIds.size > 0) {
@@ -332,7 +343,8 @@ class PlaidService {
     return { nextCursor, added, modified, removed, updateStatus };
   }
 
-  async getItemStatus(accessToken: string) {
+  async getItemStatus(connectionId: number) {
+    const { accessToken } = await this.loadConnection(connectionId);
     const r = await plaidClient.itemGet({ access_token: accessToken });
     const tx = r.data.status?.transactions;
     return {
@@ -355,7 +367,7 @@ class PlaidService {
       return true;
     } catch (err) {
       // The Item keeps billing until removed, so this shouldn't pass quietly.
-      console.warn(`Plaid Item removal failed: ${extractPlaidError(err).message}`);
+      console.warn(`Plaid Item removal failed: ${readFailure(err).message}`);
       return false;
     }
   }

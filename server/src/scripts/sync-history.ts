@@ -74,11 +74,7 @@ program
             .where(eq(accountConnections.id, conn.id));
 
           console.log(`Syncing ${label}...`);
-          const result = await plaidService.syncTransactions({
-            connectionId: conn.id,
-            accessToken: conn.plaidAccessToken,
-            cursor: null,
-          });
+          const result = await plaidService.syncTransactions(conn.id);
 
           console.log(
             `  Added: ${result.added}, Modified: ${result.modified}, Removed: ${result.removed}`,

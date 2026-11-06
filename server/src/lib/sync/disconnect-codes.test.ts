@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { needsUserAction, shouldStopPolling } from "./disconnect-codes";
+import {
+  needsUserAction,
+  readFailure,
+  shouldStopPolling,
+  SyncFailure,
+} from "./disconnect-codes";
 
 describe("sync error code policy", () => {
   const RELINK = [
@@ -58,5 +63,31 @@ describe("sync error code policy", () => {
       expect(needsUserAction(code)).toBe(false);
       expect(shouldStopPolling(code)).toBe(false);
     }
+  });
+});
+
+describe("readFailure", () => {
+  it("reads a sync failure's code and message", () => {
+    expect(readFailure(new SyncFailure("expired", "ITEM_LOGIN_REQUIRED"))).toEqual({
+      errorCode: "ITEM_LOGIN_REQUIRED",
+      message: "expired",
+    });
+  });
+
+  // DBOS replays a recorded step error as a plain Error with the same fields.
+  it("reads the code off an error that has lost its class", () => {
+    const replayed = Object.assign(new Error("expired"), {
+      errorCode: "ITEM_LOGIN_REQUIRED",
+    });
+    expect(readFailure(replayed).errorCode).toBe("ITEM_LOGIN_REQUIRED");
+  });
+
+  it("handles an error with no code", () => {
+    expect(readFailure(new Error("boom")).errorCode).toBeUndefined();
+  });
+
+  it("handles a non-Error throw", () => {
+    expect(readFailure("boom").message).toBe("Unknown sync error");
+    expect(readFailure(null).message).toBe("Unknown sync error");
   });
 });

@@ -225,6 +225,15 @@ describe("TransactionPollWorkflow.fetchActiveConnections", () => {
     expect(ids).toContain(staleConnId);
   });
 
+  // DBOS stores what a step returns, so a full row would write every token out
+  // on every poll.
+  it("keeps access tokens out of its result", async () => {
+    const connections = await TransactionPollWorkflow.fetchActiveConnections();
+
+    expect(connections.length).toBeGreaterThan(0);
+    expect(JSON.stringify(connections)).not.toContain("access_");
+  });
+
   it("frees a connection whose job was stranded, but not one still syncing", async () => {
     const pollable = async () =>
       (await TransactionPollWorkflow.fetchActiveConnections()).map((c) => c.id);
